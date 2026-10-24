@@ -33,8 +33,30 @@ header{background:#e2eddf;border-bottom:1px solid #c9dbc9}h1{color:#204632}
 .private-panel{background:#f9fcf8;border:1px solid #c6dacb;border-radius:16px;margin:14px 0;overflow:hidden;box-shadow:0 3px 10px #1d4c3020}
 .private-panel>summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:18px 19px;background:linear-gradient(105deg,#dceee0,#edf6eb);color:#244b34;font-weight:750;font-size:17px;list-style:none}
 .private-panel>summary::-webkit-details-marker{display:none}.fold-chevron{transition:transform .2s}.private-panel[open] .fold-chevron{transform:rotate(180deg)}.private-panel-content{padding:15px 16px 19px}.private-panel .shopping-item{gap:7px;flex-wrap:wrap}.private-panel .btn{white-space:normal}.finance-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px;margin:12px 0}.finance-summary>div{background:#e8f2e8;padding:12px;border-radius:11px;display:flex;flex-direction:column;gap:6px}.finance-summary strong{color:#285c3b;font-size:18px}.finance-summary small{color:#526d58}.tax-panel{background:#f1f6f0;border:1px solid #c8d9c9;border-radius:12px;padding:13px;margin-top:16px}.tax-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.tax-controls label{flex:1;min-width:160px;font-size:13px}.tax-controls input{width:100%;margin-top:5px;padding:9px;border:1px solid #b5c9b7;border-radius:8px}.private-panel h4{margin:18px 0 8px;color:#365b40}
-</style></head><body><header><div><h1>BrainHome<span style="color:#79a08a">.</span></h1><small>Ein Zuhause für deine Gedanken</small></div><button class="btn" id="backupBtn">↥ Backup</button></header><main><nav class="tabs"><button data-tab="projects" class="active">Projekte</button><button data-tab="all">Alle Aufgaben</button><button data-tab="inbox">Donna · Eingang</button><button data-tab="history">Erledigt ✨</button></nav><div id="app"></div></main><div id="notice"></div><dialog id="editor"><form id="editForm" class="modal"><h2 id="editHeading" style="margin:0">Aufgabe</h2><div class="field"><label for="name">Name</label><input id="name" required maxlength="250" autocomplete="off"></div><div class="field" id="priorityField"><label for="priority">Priorität</label><select id="priority"><option value="sofort">Sofort</option><option value="wichtig">Wichtig</option><option value="spaeter">Später</option></select></div><div class="field"><label for="kind">Art des Eintrags</label><select id="kind"><option value="task">Aufgabe · abhaken möglich</option><option value="category">Kategorie · dauerhaft</option><option value="pantry">Vorrat · vorhanden / einkaufen</option><option value="gift">Geschenk · Geburtstag</option></select></div><div class="field" id="pantryGroupField" hidden><label for="pantryGroup">Essenskategorie</label><select id="pantryGroup"><option>Frühstück</option><option>Mittagessen</option><option>Abendessen</option><option>Snacks</option><option>In Zubereitung</option></select></div><div class="field" id="birthdayField"><label for="birthday">Geburtstag (für Geschenke)</label><input id="birthday" type="date"></div><div class="field"><label for="due">Fällig am (optional)</label><input id="due" type="date"></div><div class="field"><label for="notes">Notizen (optional)</label><textarea id="notes" rows="3"></textarea></div><div class="field" id="parentField"><label for="parent">Unter welchem Punkt?</label><select id="parent"></select></div><footer><button type="button" class="btn" id="deleteBtn">Löschen</button><button type="button" class="btn" id="cancelBtn">Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form></dialog><dialog id="backupDialog"><div class="modal"><h2>Datensicherung</h2><p class="hint">Die Daten liegen nur in diesem Browser auf diesem Gerät. Sichere regelmäßig eine JSON-Datei. GitHub speichert deine persönlichen Aufgaben nicht.</p><button class="btn primary" id="exportBtn">Backup herunterladen</button><div class="field"><label for="importFile">Backup wiederherstellen (ersetzt alle aktuellen Daten)</label><input type="file" id="importFile" accept=".json,application/json"></div><footer><button class="btn" id="closeBackup">Schließen</button></footer></div></dialog><script>
-'use strict';const KEY='brainhome-v02';const roots=[['Studienstiftung','🤝'],['Doktorarbeit','🧪'],['Uni','🎓'],['Beziehungen','♡'],['Privat','⌂']];const uid=()=>crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();let data;function initial(){return {version:2,nodes:roots.map(([name,emoji])=>({id:uid(),parent:null,name,emoji,done:false,priority:'spaeter',due:'',notes:'',collapsed:false})),tab:'projects',active:null}}try{data=JSON.parse(localStorage.getItem(KEY));if(!data||!Array.isArray(data.nodes))throw Error()}catch{data=initial()}let depthLimit=5,showDone=true,editId=null,newParent=null;const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const get=id=>data.nodes.find(n=>n.id===id),kids=id=>data.nodes.filter(n=>n.parent===id),rootOf=n=>{while(n&&n.parent)n=get(n.parent);return n},rootName=n=>rootOf(n)?.name||'Donna';const descendants=id=>{let out=[];for(const n of kids(id)){out.push(n.id,...descendants(n.id))}return out};function save(){try{localStorage.setItem(KEY,JSON.stringify(data))}catch{alert('Speichern fehlgeschlagen! Bitte ein Backup exportieren.')}}function notice(s){$('notice').textContent=s;$('notice').style.display='block';setTimeout(()=>$('notice').style.display='none',2200)}function setTab(t){data.tab=t;save();render()}function openProject(id){data.active=id;data.tab='tree';save();render()}function setDone(id,v){get(id).done=v;save();render()}function toggle(id){get(id).collapsed=!get(id).collapsed;save();render()}function path(n){let p=[n.name];while(n.parent){n=get(n.parent);if(!n)break;p.unshift(n.name)}return p.join(' › ')}function nodeHTML(n,depth){if(!showDone&&n.done)return '';const child=kids(n.id).filter(x=>showDone||!x.done),expand=depth<depthLimit&&!n.collapsed;return `<div class="branch"><div class="node ${n.done?'done':''}"><span class="status">${n.done?'✓ Erledigt':esc(n.priority||'bald')}</span><span class="name">${esc(n.name)}</span><div class="actions"><button class="mini" title="Unteraufgabe hinzufügen" data-action="add" data-id="${n.id}">＋</button><button class="mini" title="Bearbeiten" data-action="edit" data-id="${n.id}">✎</button><button class="mini" title="${n.done?'Wieder öffnen':'Erledigen'}" data-action="done" data-id="${n.id}">${n.done?'↺':'✓'}</button>${child.length?`<button class="mini" title="Zweig ein-/ausklappen" data-action="toggle" data-id="${n.id}">${expand?'−':'+'}${child.length}</button>`:''}</div></div>${child.length&&expand?`<div class="children">${child.map(x=>nodeHTML(x,depth+1)).join('')}</div>`:child.length&&!n.collapsed?`<button class="btn leaf-more" data-action="deeper">${child.length} weitere · Tiefe erhöhen</button>`:''}</div>`}function render(){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===data.tab||(data.tab==='tree'&&b.dataset.tab==='projects')));const a=$('app');if(data.tab==='projects'){a.innerHTML=`<div class="topline"><div><h2>Deine Lebensbereiche</h2></div></div><div class="project-grid">${data.nodes.filter(n=>!n.parent).map(n=>`<button class="project" data-action="project" data-id="${n.id}"><strong>${esc(n.emoji||'🌿')} ${esc(n.name)}</strong><small>${descendants(n.id).filter(id=>!get(id).done).length} offene Aufgaben</small></button>`).join('')}</div><p class="hint">Öffne einen Bereich, um deinen Baum zu sehen. Donna ist dein schneller Eingang für ungeordnete Gedanken.</p>`}else if(data.tab==='tree'){const root=get(data.active);if(!root){setTab('projects');return}a.innerHTML=`<div class="topline"><div><button class="btn" data-action="back">← Projekte</button><h2>${esc(root.emoji||'🌿')} ${esc(root.name)}</h2></div><button class="btn primary" data-action="add" data-id="${root.id}">＋ Aufgabe</button></div><div class="toolbar"><button class="btn" data-action="less">− Tiefe</button><span class="muted">${depthLimit} Ebenen</span><button class="btn" data-action="deeper">＋ Tiefe</button><button class="btn" data-action="showdone">${showDone?'✓ Erledigte sichtbar':'Erledigte zeigen'}</button></div><div class="tree-scroll"><div class="tree">${nodeHTML(root,0)}</div></div><p class="hint">Seitlich wischen, um breite Äste zu sehen. Tippe auf ＋ an einem Knoten, um dort einen neuen Zweig anzulegen. Alle Änderungen werden automatisch gespeichert.</p>`}else{let nodes=data.nodes.filter(n=>n.parent&&(data.tab==='inbox'?rootName(n)==='Donna':!n.done));if(data.tab==='inbox')nodes=data.nodes.filter(n=>n.parent==='inbox');const order={sofort:0,wichtig:1,jetzt:2,bald:3,wartet:4,irgendwann:5};nodes.sort((a,b)=>(order[a.priority]??1)-(order[b.priority]??1));a.innerHTML=`<div class="topline"><div><h2>${data.tab==='inbox'?'Donna · Eingang':'Alle offenen Aufgaben'}</h2><p class="muted">${data.tab==='inbox'?'Schnell sammeln, später einsortieren.':'Projektübergreifend, ohne Pflichttermine.'}</p></div><button class="btn primary" data-action="add" data-id="${data.tab==='inbox'?'inbox':''}">＋ Aufgabe</button></div><div class="tasks">${nodes.length?nodes.map(n=>`<div class="task"><input type="checkbox" data-action="done" data-id="${n.id}" ${n.done?'checked':''}><div class="detail"><strong>${esc(n.name)}</strong><small>${esc(path(n))} · ${esc(n.priority||'bald')}${n.due?' · '+esc(n.due):''}</small></div><button class="btn" data-action="edit" data-id="${n.id}">✎</button></div>`).join(''):'<div class="panel muted">Noch keine Aufgaben hier.</div>'}</div>`}}function options(exclude){const valid=data.nodes.filter(n=>n.id!==exclude&&!descendants(exclude||'').includes(n.id));return `<option value="inbox">Donna · Eingang</option>`+valid.map(n=>`<option value="${n.id}">${esc(path(n))}</option>`).join('')}function openEditor(id,parent){editId=id||null;newParent=parent||null;const n=id?get(id):null;$('editHeading').textContent=n?'Eintrag bearbeiten':'Neuer Eintrag';$('name').value=n?.name||'';$('priority').value=normalizePriority(n?.priority);$('kind').value=n?.kind||'task';$('birthday').value=n?.birthday||'';$('birthdayField').hidden=$('kind').value!=='gift';$('pantryGroupField').hidden=$('kind').value!=='pantry';$('pantryGroup').value=n?.pantryGroup||lastFoodGroup;$('due').value=n?.due||'';$('notes').value=n?.notes||'';$('parent').innerHTML=options(id);$('parent').value=n?.parent||parent||'inbox';$('deleteBtn').hidden=!n;updateEditorFields();$('editor').showModal();$('name').focus()}$('editForm').addEventListener('submit',e=>{e.preventDefault();const name=$('name').value.trim();if(!name)return;const parent=$('parent').value;const fields={name,priority:$('kind').value==='task'?$('priority').value:'spaeter',due:$('due').value,notes:$('notes').value,parent,kind:$('kind').value,birthday:$('birthday').value,pantryGroup:$('pantryGroup').value};if(fields.kind==='pantry'){lastFoodGroup=fields.pantryGroup;localStorage.setItem(FOOD_GROUP_KEY,lastFoodGroup)}if(editId){Object.assign(get(editId),fields)}else data.nodes.push({id:uid(),done:false,collapsed:false,...fields});save();$('editor').close();render();notice('Gespeichert')});$('kind').onchange=()=>{updateEditorFields();if($('kind').value==='pantry'&&!editId)$('pantryGroup').value=lastFoodGroup};$('cancelBtn').onclick=()=>$('editor').close();$('deleteBtn').onclick=()=>{if(!editId)return;const ids=[editId,...descendants(editId)];if(!confirm(`Diesen Punkt und ${ids.length-1} Unterpunkte wirklich löschen?`))return;data.nodes=data.nodes.filter(n=>!ids.includes(n.id));save();$('editor').close();render()};document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const id=b.dataset.id;switch(b.dataset.action){case'project':openProject(id);break;case'back':setTab('projects');break;case'add':openEditor(null,id);break;case'edit':openEditor(id);break;case'done':setDone(id,!get(id).done);break;case'toggle':toggle(id);break;case'deeper':depthLimit=Math.min(100,depthLimit+5);render();break;case'less':depthLimit=Math.max(1,depthLimit-5);render();break;case'showdone':showDone=!showDone;render();break}});document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));$('backupBtn').onclick=()=>$('backupDialog').showModal();$('closeBackup').onclick=()=>$('backupDialog').close();$('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:7,nodes:data.nodes,songs:data.songs||[],shopping:data.shopping||[],routines:data.routines||[],finances:data.finances||[],taxAllowance:data.taxAllowance??null},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='BrainHome-Backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};$('importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const d=JSON.parse(await file.text());if(!Array.isArray(d.nodes)||!d.nodes.every(n=>typeof n.id==='string'&&typeof n.name==='string'&&typeof n.parent==='string'||n.parent===null&&typeof n.id==='string'&&typeof n.name==='string'))throw Error('Ungültiges Format');if(!confirm('Alle aktuellen Aufgaben durch dieses Backup ersetzen?'))return;data={version:7,nodes:d.nodes,songs:Array.isArray(d.songs)?d.songs:[],shopping:Array.isArray(d.shopping)?d.shopping:[],routines:Array.isArray(d.routines)?d.routines:[],finances:Array.isArray(d.finances)?d.finances:[],taxAllowance:Number.isFinite(d.taxAllowance)?d.taxAllowance:null,tab:'projects',active:null};save();$('backupDialog').close();render();notice('Backup importiert')}catch(err){alert('Import fehlgeschlagen: '+err.message)}e.target.value=''};render();
+
+/* BrainHome v0.8: adjustable areas, private sorting, long-press relocation */
+.tree-scroll.private-tree{min-height:175px;padding:20px 15px 26px}
+.project-add{border:2px dashed #a8c7ac;background:#f4f9f1;color:#295d3b;min-height:112px}
+.project-add strong{font-size:19px}.private-organize{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0 8px}
+.private-organize h3{margin:0;font-size:18px}.private-organize p{margin:3px 0 0}
+.private-panel>summary{gap:9px}.private-panel>summary .panel-title{flex:1;min-width:0}
+.private-panel>summary .section-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.section-sort{font-weight:800;background:#f7fbf7;border:1px solid #d4e3d5;border-radius:8px;min-width:33px;height:33px;cursor:pointer;color:#315a3c;touch-action:manipulation}
+.section-sort:disabled{opacity:.24;cursor:default}
+.custom-panel-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.custom-panel-items{margin-top:9px}.custom-panel-items .outline-item{margin:5px 0}
+.move-ready .node,.move-ready .outline-row,.move-ready .task{outline-offset:2px;cursor:grab}
+.move-drop-target{outline:3px solid #5b9f74!important;background:#e4f5e6!important}
+.move-message{position:fixed;left:14px;right:14px;bottom:20px;z-index:2000;background:#244b37;color:#fff;padding:15px 17px;border-radius:14px;box-shadow:0 8px 30px #18331c50;pointer-events:none;font-size:14px;text-align:center}
+.move-message strong{display:block;font-size:16px;margin-bottom:5px}
+.node,.outline-row,.task{-webkit-tap-highlight-color:transparent}
+body.moving-task .node,body.moving-task .outline-row,body.moving-task .task{-webkit-user-select:none;user-select:none}
+#moveDialog select{min-height:45px;width:100%}
+#moveDialog .move-path{background:#edf5ec;border-radius:10px;padding:11px;color:#3b5a47}
+.project-edit{margin-left:auto}
+@media(max-width:500px){.private-panel>summary{padding:13px 10px}.private-panel>summary .section-actions{gap:2px}.section-sort{min-width:30px;height:30px}.private-panel>summary .panel-title{font-size:15px}.project-add{min-height:92px}}
+</style></head><body><header><div><h1>BrainHome<span style="color:#79a08a">.</span></h1><small>Ein Zuhause für deine Gedanken</small></div><button class="btn" id="backupBtn">↥ Backup</button></header><main><nav class="tabs"><button data-tab="projects" class="active">Projekte</button><button data-tab="all">Alle Aufgaben</button><button data-tab="inbox">Donna · Eingang</button><button data-tab="history">Erledigt ✨</button></nav><div id="app"></div></main><div id="notice"></div><dialog id="editor"><form id="editForm" class="modal"><h2 id="editHeading" style="margin:0">Aufgabe</h2><div class="field"><label for="name">Name</label><input id="name" required maxlength="250" autocomplete="off"></div><div class="field" id="priorityField"><label for="priority">Priorität</label><select id="priority"><option value="sofort">Sofort</option><option value="wichtig">Wichtig</option><option value="spaeter">Später</option></select></div><div class="field"><label for="kind">Art des Eintrags</label><select id="kind"><option value="task">Aufgabe · abhaken möglich</option><option value="category">Kategorie · dauerhaft</option><option value="pantry">Vorrat · vorhanden / einkaufen</option><option value="gift">Geschenk · Geburtstag</option></select></div><div class="field" id="pantryGroupField" hidden><label for="pantryGroup">Essenskategorie</label><select id="pantryGroup"><option>Frühstück</option><option>Mittagessen</option><option>Abendessen</option><option>Snacks</option><option>In Zubereitung</option></select></div><div class="field" id="birthdayField"><label for="birthday">Geburtstag (für Geschenke)</label><input id="birthday" type="date"></div><div class="field"><label for="due">Fällig am (optional)</label><input id="due" type="date"></div><div class="field"><label for="notes">Notizen (optional)</label><textarea id="notes" rows="3"></textarea></div><div class="field" id="parentField"><label for="parent">Unter welchem Punkt?</label><select id="parent"></select></div><footer><button type="button" class="btn" id="deleteBtn">Löschen</button><button type="button" class="btn" id="cancelBtn">Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form></dialog><dialog id="backupDialog"><div class="modal"><h2>Datensicherung</h2><p class="hint">Die Daten liegen nur in diesem Browser auf diesem Gerät. Sichere regelmäßig eine JSON-Datei. GitHub speichert deine persönlichen Aufgaben nicht.</p><button class="btn primary" id="exportBtn">Backup herunterladen</button><div class="field"><label for="importFile">Backup wiederherstellen (ersetzt alle aktuellen Daten)</label><input type="file" id="importFile" accept=".json,application/json"></div><footer><button class="btn" id="closeBackup">Schließen</button></footer></div></dialog><dialog id="moveDialog"><form class="modal" id="moveForm"><h2 style="margin:0">↗ Eintrag verschieben</h2><p class="hint" id="moveCurrent"></p><div class="field"><label for="moveDestination">Neuer Standort</label><select id="moveDestination" required></select></div><p class="hint">Unter dem gewählten Punkt wird der Eintrag samt Unterpunkten angezeigt. Du kannst auch in ein anderes Hauptprojekt verschieben.</p><footer><button type="button" class="btn" id="moveCancel">Abbrechen</button><button type="submit" class="btn primary">Verschieben</button></footer></form></dialog><script>
+'use strict';const KEY='brainhome-v02';const roots=[['Studienstiftung','🤝'],['Doktorarbeit','🧪'],['Uni','🎓'],['Beziehungen','♡'],['Privat','⌂']];const uid=()=>crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();let data;function initial(){return {version:2,nodes:roots.map(([name,emoji])=>({id:uid(),parent:null,name,emoji,done:false,priority:'spaeter',due:'',notes:'',collapsed:false})),tab:'projects',active:null}}try{data=JSON.parse(localStorage.getItem(KEY));if(!data||!Array.isArray(data.nodes))throw Error()}catch{data=initial()}let depthLimit=5,showDone=true,editId=null,newParent=null;const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const get=id=>data.nodes.find(n=>n.id===id),kids=id=>data.nodes.filter(n=>n.parent===id),rootOf=n=>{while(n&&n.parent)n=get(n.parent);return n},rootName=n=>rootOf(n)?.name||'Donna';const descendants=id=>{let out=[];for(const n of kids(id)){out.push(n.id,...descendants(n.id))}return out};function save(){try{localStorage.setItem(KEY,JSON.stringify(data))}catch{alert('Speichern fehlgeschlagen! Bitte ein Backup exportieren.')}}function notice(s){$('notice').textContent=s;$('notice').style.display='block';setTimeout(()=>$('notice').style.display='none',2200)}function setTab(t){data.tab=t;save();render()}function openProject(id){data.active=id;data.tab='tree';save();render()}function setDone(id,v){get(id).done=v;save();render()}function toggle(id){get(id).collapsed=!get(id).collapsed;save();render()}function path(n){let p=[n.name];while(n.parent){n=get(n.parent);if(!n)break;p.unshift(n.name)}return p.join(' › ')}function nodeHTML(n,depth){if(!showDone&&n.done)return '';const child=kids(n.id).filter(x=>showDone||!x.done),expand=depth<depthLimit&&!n.collapsed;return `<div class="branch"><div class="node ${n.done?'done':''}"><span class="status">${n.done?'✓ Erledigt':esc(n.priority||'bald')}</span><span class="name">${esc(n.name)}</span><div class="actions"><button class="mini" title="Unteraufgabe hinzufügen" data-action="add" data-id="${n.id}">＋</button><button class="mini" title="Bearbeiten" data-action="edit" data-id="${n.id}">✎</button><button class="mini" title="${n.done?'Wieder öffnen':'Erledigen'}" data-action="done" data-id="${n.id}">${n.done?'↺':'✓'}</button>${child.length?`<button class="mini" title="Zweig ein-/ausklappen" data-action="toggle" data-id="${n.id}">${expand?'−':'+'}${child.length}</button>`:''}</div></div>${child.length&&expand?`<div class="children">${child.map(x=>nodeHTML(x,depth+1)).join('')}</div>`:child.length&&!n.collapsed?`<button class="btn leaf-more" data-action="deeper">${child.length} weitere · Tiefe erhöhen</button>`:''}</div>`}function render(){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===data.tab||(data.tab==='tree'&&b.dataset.tab==='projects')));const a=$('app');if(data.tab==='projects'){a.innerHTML=`<div class="topline"><div><h2>Deine Lebensbereiche</h2></div></div><div class="project-grid">${data.nodes.filter(n=>!n.parent).map(n=>`<button class="project" data-action="project" data-id="${n.id}"><strong>${esc(n.emoji||'🌿')} ${esc(n.name)}</strong><small>${descendants(n.id).filter(id=>!get(id).done).length} offene Aufgaben</small></button>`).join('')}</div><p class="hint">Öffne einen Bereich, um deinen Baum zu sehen. Donna ist dein schneller Eingang für ungeordnete Gedanken.</p>`}else if(data.tab==='tree'){const root=get(data.active);if(!root){setTab('projects');return}a.innerHTML=`<div class="topline"><div><button class="btn" data-action="back">← Projekte</button><h2>${esc(root.emoji||'🌿')} ${esc(root.name)}</h2></div><button class="btn primary" data-action="add" data-id="${root.id}">＋ Aufgabe</button></div><div class="toolbar"><button class="btn" data-action="less">− Tiefe</button><span class="muted">${depthLimit} Ebenen</span><button class="btn" data-action="deeper">＋ Tiefe</button><button class="btn" data-action="showdone">${showDone?'✓ Erledigte sichtbar':'Erledigte zeigen'}</button></div><div class="tree-scroll"><div class="tree">${nodeHTML(root,0)}</div></div><p class="hint">Seitlich wischen, um breite Äste zu sehen. Tippe auf ＋ an einem Knoten, um dort einen neuen Zweig anzulegen. Alle Änderungen werden automatisch gespeichert.</p>`}else{let nodes=data.nodes.filter(n=>n.parent&&(data.tab==='inbox'?rootName(n)==='Donna':!n.done));if(data.tab==='inbox')nodes=data.nodes.filter(n=>n.parent==='inbox');const order={sofort:0,wichtig:1,jetzt:2,bald:3,wartet:4,irgendwann:5};nodes.sort((a,b)=>(order[a.priority]??1)-(order[b.priority]??1));a.innerHTML=`<div class="topline"><div><h2>${data.tab==='inbox'?'Donna · Eingang':'Alle offenen Aufgaben'}</h2><p class="muted">${data.tab==='inbox'?'Schnell sammeln, später einsortieren.':'Projektübergreifend, ohne Pflichttermine.'}</p></div><button class="btn primary" data-action="add" data-id="${data.tab==='inbox'?'inbox':''}">＋ Aufgabe</button></div><div class="tasks">${nodes.length?nodes.map(n=>`<div class="task"><input type="checkbox" data-action="done" data-id="${n.id}" ${n.done?'checked':''}><div class="detail"><strong>${esc(n.name)}</strong><small>${esc(path(n))} · ${esc(n.priority||'bald')}${n.due?' · '+esc(n.due):''}</small></div><button class="btn" data-action="edit" data-id="${n.id}">✎</button></div>`).join(''):'<div class="panel muted">Noch keine Aufgaben hier.</div>'}</div>`}}function options(exclude){const valid=data.nodes.filter(n=>n.id!==exclude&&!descendants(exclude||'').includes(n.id));return `<option value="inbox">Donna · Eingang</option>`+valid.map(n=>`<option value="${n.id}">${esc(path(n))}</option>`).join('')}function openEditor(id,parent){editId=id||null;newParent=parent||null;const n=id?get(id):null;$('editHeading').textContent=n?'Eintrag bearbeiten':'Neuer Eintrag';$('name').value=n?.name||'';$('priority').value=normalizePriority(n?.priority);$('kind').value=n?.kind||'task';$('birthday').value=n?.birthday||'';$('birthdayField').hidden=$('kind').value!=='gift';$('pantryGroupField').hidden=$('kind').value!=='pantry';$('pantryGroup').value=n?.pantryGroup||lastFoodGroup;$('due').value=n?.due||'';$('notes').value=n?.notes||'';$('parent').innerHTML=options(id);$('parent').value=n?.parent||parent||'inbox';$('deleteBtn').hidden=!n;updateEditorFields();$('editor').showModal();$('name').focus()}$('editForm').addEventListener('submit',e=>{e.preventDefault();const name=$('name').value.trim();if(!name)return;const parent=$('parent').value;const fields={name,priority:$('kind').value==='task'?$('priority').value:'spaeter',due:$('due').value,notes:$('notes').value,parent,kind:$('kind').value,birthday:$('birthday').value,pantryGroup:$('pantryGroup').value};if(fields.kind==='pantry'){lastFoodGroup=fields.pantryGroup;localStorage.setItem(FOOD_GROUP_KEY,lastFoodGroup)}if(editId){Object.assign(get(editId),fields)}else data.nodes.push({id:uid(),done:false,collapsed:false,...fields});save();$('editor').close();render();notice('Gespeichert')});$('kind').onchange=()=>{updateEditorFields();if($('kind').value==='pantry'&&!editId)$('pantryGroup').value=lastFoodGroup};$('cancelBtn').onclick=()=>$('editor').close();$('deleteBtn').onclick=()=>{if(!editId)return;const ids=[editId,...descendants(editId)];if(!confirm(`Diesen Punkt und ${ids.length-1} Unterpunkte wirklich löschen?`))return;data.nodes=data.nodes.filter(n=>!ids.includes(n.id));save();$('editor').close();render()};document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const id=b.dataset.id;switch(b.dataset.action){case'project':openProject(id);break;case'back':setTab('projects');break;case'add':openEditor(null,id);break;case'edit':openEditor(id);break;case'done':setDone(id,!get(id).done);break;case'toggle':toggle(id);break;case'deeper':depthLimit=Math.min(100,depthLimit+5);render();break;case'less':depthLimit=Math.max(1,depthLimit-5);render();break;case'showdone':showDone=!showDone;render();break}});document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));$('backupBtn').onclick=()=>$('backupDialog').showModal();$('closeBackup').onclick=()=>$('backupDialog').close();$('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:8,nodes:data.nodes,songs:data.songs||[],shopping:data.shopping||[],routines:data.routines||[],finances:data.finances||[],taxAllowance:data.taxAllowance??null,privateOrder:Array.isArray(data.privateOrder)?data.privateOrder:[]},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='BrainHome-Backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};$('importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const d=JSON.parse(await file.text());if(!Array.isArray(d.nodes)||!d.nodes.every(n=>typeof n.id==='string'&&typeof n.name==='string'&&typeof n.parent==='string'||n.parent===null&&typeof n.id==='string'&&typeof n.name==='string'))throw Error('Ungültiges Format');if(!confirm('Alle aktuellen Aufgaben durch dieses Backup ersetzen?'))return;data={version:7,nodes:d.nodes,songs:Array.isArray(d.songs)?d.songs:[],shopping:Array.isArray(d.shopping)?d.shopping:[],routines:Array.isArray(d.routines)?d.routines:[],finances:Array.isArray(d.finances)?d.finances:[],taxAllowance:Number.isFinite(d.taxAllowance)?d.taxAllowance:null,privateOrder:Array.isArray(d.privateOrder)?d.privateOrder:[],tab:'projects',active:null};save();$('backupDialog').close();render();notice('Backup importiert')}catch(err){alert('Import fehlgeschlagen: '+err.message)}e.target.value=''};render();
 </script><script>
 // v0.4 extension: keeps the original localStorage key and node IDs intact.
 const V04_PREF='brainhome-v04-preferences';
@@ -92,7 +114,15 @@ function nextRoutine(r){if(!r.lastDone)return null;const d=new Date(r.lastDone+'
 function routineDue(r){const next=nextRoutine(r);return !next||next<=localDay()}
 function routinesHTML(){const due=data.routines.filter(routineDue);const later=data.routines.filter(r=>!routineDue(r));const row=(r,active)=>`<div class="shopping-item"><div style="flex:1"><strong>${esc(r.name)}</strong><div class="hint">Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}${r.lastDone?' · zuletzt '+esc(r.lastDone):''}${!active?' · wieder ab '+esc(nextRoutine(r)):''}</div></div>${active?`<button class="btn primary" data-action="routine-done" data-id="${esc(r.id)}">✓ Gemacht</button>`:''}<button class="mini" data-action="routine-edit" data-id="${esc(r.id)}">✎</button><button class="mini" data-action="routine-delete" data-id="${esc(r.id)}">×</button></div>`;return `<div class="topline"><p class="hint">${due.length} jetzt fällig · alle Routinen bleiben hier einsehbar.</p><button class="btn" data-action="routine-add">＋ Routine</button></div><h4>Jetzt dran</h4>${due.map(r=>row(r,true)).join('')||'<p class="hint">Alles erledigt. 🌿</p>'}<h4>Später wieder dran</h4>${later.map(r=>row(r,false)).join('')||'<p class="hint">Keine wartenden Routinen.</p>'}`}
 function monthlyAmount(f){const amount=Number(f.amount)||0;return amount*(f.frequency==='yearly'?1/12:f.frequency==='weekly'?52/12:1)}
-function financesHTML(){const income=data.finances.filter(f=>f.direction==='in').reduce((s,f)=>s+monthlyAmount(f),0);const out=data.finances.filter(f=>f.direction==='out').reduce((s,f)=>s+monthlyAmount(f),0);const taxable=data.finances.filter(f=>f.direction==='in'&&f.taxable).reduce((s,f)=>s+monthlyAmount(f)*12,0);const allowance=Number(data.taxAllowance);return `<div class="topline"><p class="hint">Wiederkehrende Zahlungen · Monatswerte sind Näherungen.</p><button class="btn" data-action="finance-add">＋ Zahlung</button></div><div class="finance-summary"><div><small>Einnahmen / Monat</small><strong>${euro(income)}</strong></div><div><small>Ausgaben / Monat</small><strong>${euro(out)}</strong></div><div><small>Überschuss / Monat</small><strong>${euro(income-out)}</strong></div></div>${data.finances.map(f=>`<div class="shopping-item"><span style="flex:1"><strong>${esc(f.name)}</strong><div class="hint">${f.direction==='in'?'Einnahme':'Ausgabe'} · ${esc(f.frequency==='yearly'?'jährlich':f.frequency==='weekly'?'wöchentlich':'monatlich')} · ${f.taxable?'als steuerpflichtig markiert':'nicht als steuerpflichtig markiert'}</div></span><strong>${f.direction==='in'?'+':'−'}${euro(f.amount)}</strong><button class="mini" data-action="finance-edit" data-id="${esc(f.id)}">✎</button><button class="mini" data-action="finance-delete" data-id="${esc(f.id)}">×</button></div>`).join('')||'<p class="hint">Noch keine regelmäßigen Zahlungen eingetragen.</p>'}<div class="tax-panel"><strong>Steuerliche Orientierung</strong><p class="hint">Als steuerpflichtig markierte Brutto-Einnahmen, hochgerechnet: <b>${euro(taxable)} / Jahr</b>.</p><div class="tax-controls"><label>Eigener Vergleichswert (€ pro Jahr) <input type="number" min="0" step="1" id="taxAllowance" value="${Number.isFinite(data.taxAllowance)?esc(data.taxAllowance):''}" placeholder="Optional eintragen"></label><button class="btn" data-action="tax-save">Übernehmen</button></div>${Number.isFinite(data.taxAllowance)?`<p><strong>${euro(data.taxAllowance-taxable)}</strong> ${data.taxAllowance>=taxable?'bis zum eingetragenen Vergleichswert':'über dem eingetragenen Vergleichswert'}</p>`:''}<p class="hint">Kein Steuerrechner: Grundfreibetrag, Steuerpflicht und Pflicht zur Steuererklärung sind unterschiedliche Dinge. Entscheidend sind u. a. Einkunftsart, Werbungskosten, Steuerjahr und persönliche Situation. Diese Anzeige kann nicht sagen, ob du eine Steuererklärung abgeben musst.</p></div>`}
+function financesHTML(){
+ const income=data.finances.filter(f=>f.direction==='in').reduce((s,f)=>s+monthlyAmount(f),0);
+ const out=data.finances.filter(f=>f.direction==='out').reduce((s,f)=>s+monthlyAmount(f),0);
+ const taxable=data.finances.filter(f=>f.direction==='in'&&f.taxable).reduce((s,f)=>s+monthlyAmount(f)*12,0);
+ return `<div class="topline"><p class="hint">Wiederkehrende Zahlungen · Monatswerte sind Näherungen.</p><button class="btn" data-action="finance-add">＋ Zahlung</button></div>
+ <div class="finance-summary"><div><small>Einnahmen / Monat</small><strong>${euro(income)}</strong></div><div><small>Ausgaben / Monat</small><strong>${euro(out)}</strong></div><div><small>Überschuss / Monat</small><strong>${euro(income-out)}</strong></div></div>
+ ${data.finances.map(f=>`<div class="shopping-item"><span style="flex:1"><strong>${esc(f.name)}</strong><div class="hint">${f.direction==='in'?'Einnahme':'Ausgabe'} · ${esc(f.frequency==='yearly'?'jährlich':f.frequency==='weekly'?'wöchentlich':'monatlich')} · ${f.taxable?'als steuerpflichtig markiert':'nicht als steuerpflichtig markiert'}</div></span><strong>${f.direction==='in'?'+':'−'}${euro(f.amount)}</strong><button class="mini" data-action="finance-edit" data-id="${esc(f.id)}">✎</button><button class="mini" data-action="finance-delete" data-id="${esc(f.id)}">×</button></div>`).join('')||'<p class="hint">Noch keine regelmäßigen Zahlungen eingetragen.</p>'}
+ <div class="tax-panel"><strong>Steuerliche Orientierung · 2026</strong><p>Grundfreibetrag: <strong>12.348 € im Jahr</strong></p><p class="hint">Von dir als steuerpflichtig markierte Einnahmen (brutto, hochgerechnet): <strong>${euro(taxable)} / Jahr</strong>.</p><p class="hint">Der Grundfreibetrag gilt für das <em>zu versteuernde Einkommen</em>, nicht für alle Einnahmen zusammen. Bei Renten zählt oft nur ein Anteil; Abzüge können das Ergebnis verändern. Die Abgabepflicht zur Steuererklärung ist davon unabhängig. Keine automatische Steuerprüfung.</p><small class="hint">Stand: Steuerjahr 2026 · Bundesministerium der Finanzen</small></div>`;
+}
 // Keep private panels' open state when re-rendering.
 document.addEventListener('toggle',e=>{const panel=e.target.closest?.('[data-panel]');if(!panel||e.target!==panel)return;panels[panel.dataset.panel]=panel.open;localStorage.setItem(PANEL_KEY,JSON.stringify(panels))},true);
 function findRecord(list,id){return list.find(x=>x.id===id)}
@@ -133,4 +163,222 @@ function drawConnectors(){const scroll=document.querySelector('.tree-scroll');if
 const renderV04=render;render=function(){renderV04();requestAnimationFrame(drawConnectors)};
 window.addEventListener('resize',()=>requestAnimationFrame(drawConnectors));
 render();
-</script><script>if ('serviceWorker'  in navigator) {window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('Offline-Modus:',e)));}</script></body></html>
+</script>
+<script>
+// v0.8: retain original storage key and all previously created node IDs.
+const BH08_BUILTINS=['food','shopping','routines','finance','gifts','songs'];
+const BH08_LABELS={food:'🥣 Essen',shopping:'🛍️ Einkauf',routines:'🌱 Routinen',finance:'💶 Finanzen',gifts:'🎁 Geschenke',songs:'🔥 Lagerfeuer-Lieder'};
+function privateRoot(){return data.nodes.find(n=>n.parent===null&&n.name==='Privat')}
+function privateCustomNodes(){const root=privateRoot();return root?data.nodes.filter(n=>n.parent===root.id&&n.privateSection===true):[]}
+function syncPrivateOrder(){
+ if(!Array.isArray(data.privateOrder))data.privateOrder=[];
+ const all=[...BH08_BUILTINS,...privateCustomNodes().map(n=>'custom:'+n.id)];
+ data.privateOrder=[...new Set([...data.privateOrder.filter(key=>all.includes(key)),...all])];
+}
+// Existing five roots are permanent organizational categories, not completable tasks.
+for(const root of data.nodes.filter(n=>n.parent===null)){if(!root.kind)root.kind='category'}
+syncPrivateOrder();save();
+const BH08_priorSpecial=isSpecialTreeNode;
+isSpecialTreeNode=function(n){return !!n?.privateSection||BH08_priorSpecial(n)};
+const BH08_oldSpecials=specialsHTML;
+specialsHTML=function(){
+ const wrapper=document.createElement('div');wrapper.innerHTML=BH08_oldSpecialsHTML();
+ const container=wrapper.querySelector('.specials');if(!container)return BH08_oldSpecialsHTML();
+ const present=new Map([...container.querySelectorAll(':scope > [data-panel]')].map(el=>[el.dataset.panel,el]));
+ for(const n of privateCustomNodes()){
+   const key='custom:'+n.id;
+   const children=kids(n.id).filter(x=>!isSpecialTreeNode(x)&&(showDone||!isTask(x)||!x.done));
+   const content=`<div class="custom-panel-actions"><button class="btn primary" data-action="add" data-id="${esc(n.id)}">＋ Eintrag</button><button class="btn" data-action="private-rename" data-id="${esc(n.id)}">✎ Umbenennen</button><button class="btn" data-action="private-delete" data-id="${esc(n.id)}">Löschen</button></div><div class="custom-panel-items outline-tree">${children.map(c=>outlineHTML(c,0)).join('')||'<p class="hint">Hier ist noch Platz für deine ersten Einträge.</p>'}</div>`;
+   const elt=document.createElement('div');elt.innerHTML=foldPanel(key,'📂 '+esc(n.name),content);present.set(key,elt.firstElementChild);
+ }
+ syncPrivateOrder();container.replaceChildren();
+ const bar=document.createElement('div');bar.className='private-organize';bar.innerHTML='<div><h3>Deine Privat-Kategorien</h3><p class="hint">Mit ↑ ↓ sortieren · jede Kategorie ist einklappbar.</p></div><button class="btn primary" data-action="private-add">＋ Kategorie</button>';container.append(bar);
+ data.privateOrder.forEach((key,i)=>{
+   const elt=present.get(key);if(!elt)return;
+   const summary=elt.querySelector('summary');if(summary){
+     const title=key.startsWith('custom:')?'📂 '+(get(key.slice(7))?.name||'Kategorie'):BH08_LABELS[key];
+     summary.innerHTML=`<span class="panel-title">${esc(title)}</span><span class="section-actions"><button type="button" class="section-sort" data-action="private-up" data-key="${esc(key)}" aria-label="${esc(title)} nach oben" ${i===0?'disabled':''}>↑</button><button type="button" class="section-sort" data-action="private-down" data-key="${esc(key)}" aria-label="${esc(title)} nach unten" ${i===data.privateOrder.length-1?'disabled':''}>↓</button></span><span class="fold-chevron">▾</span>`;
+   }
+   container.append(elt);
+ });
+ return container.outerHTML;
+};
+function BH08_oldSpecialsHTML(){return BH08_oldSpecials()}
+
+function renamePrivateCategory(id){
+ const n=get(id);if(!n?.privateSection)return;
+ const value=prompt('Neuer Kategoriename',n.name);if(value===null)return;
+ const name=value.trim();if(!name)return alert('Bitte einen Namen angeben.');
+ n.name=name;save();render();notice('Kategorie umbenannt');
+}
+function addPrivateCategory(){
+ const parent=privateRoot();if(!parent)return alert('Privat konnte nicht gefunden werden.');
+ const value=prompt('Wie soll deine neue Kategorie heißen?');if(value===null)return;
+ const name=value.trim();if(!name)return alert('Bitte einen Namen angeben.');
+ const node={id:uid(),parent:parent.id,name,kind:'category',privateSection:true,collapsed:false,done:false,priority:'spaeter',notes:'',due:''};
+ data.nodes.push(node);data.privateOrder.push('custom:'+node.id);panels['custom:'+node.id]=true;
+ localStorage.setItem(PANEL_KEY,JSON.stringify(panels));save();render();notice('Neue Privat-Kategorie angelegt');
+}
+function deletePrivateCategory(id){
+ const n=get(id);if(!n?.privateSection)return;
+ const sub=descendants(n.id);if(!confirm(`„${n.name}“ mit ${sub.length} Unterpunkten löschen? Alle enthaltenen Aufgaben würden gelöscht.`))return;
+ const remove=new Set([id,...sub]);data.nodes=data.nodes.filter(x=>!remove.has(x.id));
+ data.privateOrder=data.privateOrder.filter(k=>k!=='custom:'+id);save();render();notice('Kategorie gelöscht');
+}
+function changePrivateOrder(key,direction){
+ syncPrivateOrder();const ix=data.privateOrder.indexOf(key),to=ix+direction;
+ if(ix<0||to<0||to>=data.privateOrder.length)return;
+ [data.privateOrder[ix],data.privateOrder[to]]=[data.privateOrder[to],data.privateOrder[ix]];
+ save();render();notice('Reihenfolge gespeichert');
+}
+function createMainProject(){
+ const proposed=prompt('Name des neuen Hauptprojekts (z. B. Promotion)');if(proposed===null)return;
+ const name=proposed.trim();if(!name)return alert('Bitte einen Namen angeben.');if(data.nodes.some(n=>n.parent===null&&n.name.toLowerCase()===name.toLowerCase()))return alert('Ein Hauptprojekt mit diesem Namen existiert bereits.');
+ const icon=prompt('Welches Symbol soll das Projekt bekommen? (Emoji)', '🌱');if(icon===null)return;
+ const node={id:uid(),parent:null,name,emoji:icon.trim().slice(0,8)||'🌱',userCreated:true,kind:'category',done:false,priority:'spaeter',due:'',notes:'',collapsed:false};
+ data.nodes.push(node);save();openProject(node.id);notice('Hauptprojekt angelegt');
+}
+function deleteMainProject(){const n=get(data.active);if(!n?.userCreated)return;if(!confirm(`Hauptprojekt „${n.name}“ einschließlich aller ${descendants(n.id).length} Unterpunkte löschen?`))return;const remove=new Set([n.id,...descendants(n.id)]);data.nodes=data.nodes.filter(x=>!remove.has(x.id));data.active=null;data.tab='projects';save();render();notice('Hauptprojekt gelöscht')}
+function editMainProject(){
+ const n=get(data.active);if(!n||n.parent!==null)return;
+ const name=prompt('Name des Hauptprojekts',n.name);if(name===null)return;
+ if(!name.trim())return alert('Bitte einen Namen angeben.');if(data.nodes.some(x=>x.parent===null&&x.id!==n.id&&x.name.toLowerCase()===name.trim().toLowerCase()))return alert('Dieser Projektname ist bereits vergeben.');
+ const icon=prompt('Symbol (Emoji)',n.emoji||'🌱');if(icon===null)return;
+ n.name=name.trim();n.emoji=icon.trim().slice(0,8)||'🌱';save();render();notice('Projekt umbenannt');
+}
+// Add controls to the existing project/forest views without rewriting the original tree renderer.
+const BH08_oldRender=render;
+render=function(){
+ BH08_oldRender();const app=$('app');if(!app)return;
+ if(data.tab==='projects'){
+   const grid=app.querySelector('.project-grid');if(grid){const button=document.createElement('button');button.type='button';button.className='project project-add';button.dataset.action='main-add';button.innerHTML='<strong>＋ Hauptprojekt</strong><small>Neuen Lebensbereich anlegen</small>';grid.append(button)}
+ }
+ if(data.tab==='tree'){
+   if(get(data.active)?.name==='Privat')app.querySelector('.tree-scroll')?.classList.add('private-tree');
+   const heading=app.querySelector('.topline');if(heading){const button=document.createElement('button');button.type='button';button.className='btn project-edit';button.dataset.action='main-edit';button.textContent='✎ Projekt';heading.append(button);if(get(data.active)?.userCreated){const del=document.createElement('button');del.type='button';del.className='btn';del.dataset.action='main-delete';del.textContent='🗑';del.title='Dieses Hauptprojekt löschen';heading.append(del)}}
+   const hint=document.createElement('p');hint.className='hint';hint.innerHTML='↗ <strong>Eintrag verschieben:</strong> Aufgabe oder Kategorie ca. eine halbe Sekunde gedrückt halten. Dann auf einen anderen Punkt ziehen oder ein Ziel aus der Liste wählen.';
+   const toolbar=app.querySelector('.toolbar');if(toolbar)toolbar.after(hint);
+ }
+};
+
+// Moving items: save only the parent reference; IDs, nested entries, statuses and dates remain intact.
+function movableAt(element){
+ const row=element?.closest?.('.node,.outline-row,.task');if(!row||!$('app').contains(row))return null;
+ const edit=row.querySelector('[data-action="edit"][data-id]');if(!edit)return null;
+ const n=get(edit.dataset.id);
+ if(!n||n.parent===null||n.privateSection||isPantry(n)||isGift(n))return null;
+ return n;
+}
+function allowedDestination(moved,target){
+ return moved&&target&&moved.id!==target.id&&!descendants(moved.id).includes(target.id)&&!isPantry(target)&&!isGift(target)&&!(isSpecialTreeNode(target)&&!target.privateSection);
+}
+function moveNode(id,newParent){
+ const n=get(id);if(!n||n.parent===null)return false;
+ const parent=newParent==='inbox'?null:get(newParent);
+ if(newParent!=='inbox'&&!allowedDestination(n,parent))return false;
+ if(n.parent===newParent)return true;
+ n.parent=newParent;
+ save();
+ if(parent){const root=rootOf(parent);if(root&&root.id!==data.active&&data.tab==='tree'){data.active=root.id;save()}}
+ render();notice('Eintrag samt Unterpunkten verschoben');return true;
+}
+let BH08_movingId=null;
+function openMoveChooser(id){
+ const n=get(id);if(!n||n.parent===null)return;
+ BH08_movingId=id;
+ const sel=$('moveDestination');sel.replaceChildren();
+ const inbox=new Option('📥 Donna · Eingang','inbox');sel.add(inbox);
+ for(const root of data.nodes.filter(x=>x.parent===null)){
+   const group=document.createElement('optgroup');group.label=(root.emoji||'🌿')+' '+root.name;
+   const nodes=[root,...descendants(root.id).map(get).filter(Boolean)];
+   for(const parent of nodes){if(!allowedDestination(n,parent))continue;
+      const item=new Option(parent===root?'Hauptprojekt: '+root.name:path(parent),parent.id);
+      group.append(item);
+   }
+   if(group.children.length)sel.append(group);
+ }
+ $('moveCurrent').textContent='Zu verschieben: '+path(n);
+ sel.value=n.parent;
+ if(sel.selectedIndex<0)sel.selectedIndex=0;
+ $('moveDialog').showModal();
+}
+$('moveCancel').onclick=()=>$('moveDialog').close();
+$('moveForm').addEventListener('submit',e=>{
+ e.preventDefault();const id=BH08_movingId,dest=$('moveDestination').value;
+ if(!id||!dest)return;
+ if(!moveNode(id,dest)){alert('Dieses Ziel ist nicht möglich.');return}
+ $('moveDialog').close();BH08_movingId=null;
+});
+$('moveDialog').addEventListener('close',()=>{BH08_movingId=null});
+
+let BH08_press=null;
+function showMoveHint(n){
+ document.body.classList.add('moving-task');let el=document.getElementById('brainhomeMoveHint');
+ if(!el){el=document.createElement('div');el.id='brainhomeMoveHint';el.className='move-message';document.body.append(el)}
+ el.innerHTML='<strong>↗ '+esc(n.name)+'</strong>Auf eine andere Aufgabe/Kategorie ziehen – oder loslassen, um den Zielort auszuwählen.';
+}
+function clearMoveHint(){document.body.classList.remove('moving-task');document.getElementById('brainhomeMoveHint')?.remove();document.querySelectorAll('.move-drop-target').forEach(x=>x.classList.remove('move-drop-target'))}
+function candidateAt(x,y){
+ // The overlay is non-interactive so elementFromPoint finds the actual tree card.
+ const el=document.elementFromPoint(x,y);const n=movableAt(el);
+ // Root nodes are legitimate destinations, but not draggable: extract their ID separately.
+ const row=el?.closest?.('.node,.outline-row,.task');const edit=row?.querySelector('[data-action="edit"][data-id]');
+ return edit?get(edit.dataset.id):n;
+}
+function pressStart(e,touch){
+ if(BH08_press)return;
+ if(!touch&&(e.button!==0||e.pointerType==='touch'))return;
+ const el=e.target;if(el.closest('button,input,select,textarea,a,summary'))return;
+ const n=movableAt(el);if(!n)return;
+ const point=touch?e.touches[0]:e;
+ const state={id:n.id,x:point.clientX,y:point.clientY,cx:point.clientX,cy:point.clientY,touch,active:false,target:null,timer:null};
+ state.timer=setTimeout(()=>{state.active=true;showMoveHint(n);if(navigator.vibrate)navigator.vibrate(25)},480);
+ BH08_press=state;
+}
+function pressMove(e,touch){
+ const s=BH08_press;if(!s||s.touch!==touch)return;
+ const pt=touch?e.touches[0]:e;if(!pt)return;
+ s.cx=pt.clientX;s.cy=pt.clientY;
+ if(!s.active){if(Math.hypot(s.cx-s.x,s.cy-s.y)>12){clearTimeout(s.timer);BH08_press=null}return}
+ if(touch&&e.cancelable)e.preventDefault();
+ document.querySelectorAll('.move-drop-target').forEach(x=>x.classList.remove('move-drop-target'));
+ const target=candidateAt(s.cx,s.cy);
+ s.target=allowedDestination(get(s.id),target)?target?.id:null;
+ if(s.target){const hover=document.elementFromPoint(s.cx,s.cy)?.closest('.node,.outline-row,.task');hover?.classList.add('move-drop-target')}
+}
+function pressEnd(e,touch,cancel=false){
+ const s=BH08_press;if(!s||s.touch!==touch)return;
+ clearTimeout(s.timer);BH08_press=null;clearMoveHint();
+ if(cancel||!s.active)return;
+ if(s.target){moveNode(s.id,s.target);return}
+ openMoveChooser(s.id);
+}
+const appRoot=$('app');
+appRoot.addEventListener('touchstart',e=>pressStart(e,true),{passive:true});
+appRoot.addEventListener('touchmove',e=>pressMove(e,true),{passive:false});
+appRoot.addEventListener('touchend',e=>pressEnd(e,true));
+appRoot.addEventListener('touchcancel',e=>pressEnd(e,true,true));
+appRoot.addEventListener('pointerdown',e=>pressStart(e,false));
+window.addEventListener('pointermove',e=>pressMove(e,false));
+window.addEventListener('pointerup',e=>pressEnd(e,false));
+window.addEventListener('pointercancel',e=>pressEnd(e,false,true));
+appRoot.addEventListener('contextmenu',e=>{if(BH08_press?.active)e.preventDefault()});
+
+// Private panels are sortable even when collapsed; prevent a sort button from toggling <details>.
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-action]');if(!b)return;
+ const action=b.dataset.action;
+ if(!['main-add','main-edit','main-delete','private-add','private-up','private-down','private-rename','private-delete'].includes(action))return;
+ e.preventDefault();e.stopPropagation();
+ if(action==='main-add')createMainProject();
+ else if(action==='main-edit')editMainProject();
+ else if(action==='main-delete')deleteMainProject();
+ else if(action==='private-add')addPrivateCategory();
+ else if(action==='private-up')changePrivateOrder(b.dataset.key,-1);
+ else if(action==='private-down')changePrivateOrder(b.dataset.key,1);
+ else if(action==='private-rename')renamePrivateCategory(b.dataset.id);
+ else if(action==='private-delete')deletePrivateCategory(b.dataset.id);
+},true);
+render();
+</script>
+<script>if ('serviceWorker'  in navigator) {window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('Offline-Modus:',e)));}</script></body></html>
