@@ -37,14 +37,8 @@ save=function(){
    const prevObj=JSON.parse(before),nextObj=JSON.parse(next);
    if(!v1SuppressHistory){
      v1Undo.push(before);v1Undo=v1Undo.slice(-18);v1Redo=[];
-     const removed=v1RemovalBatch(prevObj,nextObj);
-     if(removed.length){
-       if(!Array.isArray(data.trash))data.trash=[];
-       data.trash.unshift({id:v1NewId(),deletedAt:new Date().toISOString(),label:removed.find(r=>r.field==='nodes')?.record?.name||'Gelöschte Einträge',items:removed});
-     }
+     // The undo/redo arrows retain recent changes; no additional trash is created.
    }
-   const cutoff=Date.now()-30*86400000;
-   if(Array.isArray(data.trash))data.trash=data.trash.filter(entry=>new Date(entry.deletedAt).getTime()>cutoff);
    v1Last=v1Json(data);v1SaveUndo();
    queueMicrotask(()=>window.BHCloud?.markDirty?.());
  }
@@ -79,14 +73,13 @@ $('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{co
 
 function v1InitHeader(){
  const header=document.querySelector('body > header');const oldBackup=$('backupBtn');const toolbar=document.createElement('div');toolbar.className='v1-head-actions';
- toolbar.innerHTML='<button class="v1-icon-btn" id="v1SearchBtn" title="Alle Einträge durchsuchen" aria-label="Suche">⌕</button><button class="v1-icon-btn" id="v1UndoBtn" title="Rückgängig" aria-label="Rückgängig">↶</button><button class="v1-icon-btn" id="v1RedoBtn" title="Wiederholen" aria-label="Wiederholen">↷</button><button class="v1-icon-btn" id="v1TrashBtn" title="Papierkorb" aria-label="Papierkorb">♲</button><button class="btn v1-cloud-btn" id="v1CloudBtn" title="Cloud-Sicherung">☁ <span id="v1CloudDot">Offline</span></button>';
+ toolbar.innerHTML='<button class="v1-icon-btn" id="v1SearchBtn" title="Alle Einträge durchsuchen" aria-label="Suche">⌕</button><button class="v1-icon-btn" id="v1UndoBtn" title="Rückgängig" aria-label="Rückgängig">↶</button><button class="v1-icon-btn" id="v1RedoBtn" title="Wiederholen" aria-label="Wiederholen">↷</button><button class="btn v1-cloud-btn" id="v1CloudBtn" title="Cloud-Sicherung">☁ <span id="v1CloudDot">Offline</span></button>';
  oldBackup.parentNode.insertBefore(toolbar,oldBackup);toolbar.append(oldBackup);oldBackup.textContent='⇧ Backup';
  const nav=document.querySelector('nav.tabs'),home=document.createElement('button');home.dataset.tab='home';home.textContent='Startseite';nav.prepend(home);
  const oldInbox=nav.querySelector('[data-tab="inbox"]');if(oldInbox)oldInbox.textContent='Inbox';
  home.addEventListener('click',()=>setTab('home'));
  $('v1SearchBtn').onclick=()=>{setTab('search');document.getElementById('v1SearchInput')?.focus()};
  $('v1UndoBtn').onclick=v1UndoAction;$('v1RedoBtn').onclick=v1RedoAction;
- $('v1TrashBtn').onclick=()=>setTab('trash');
  $('v1CloudBtn').onclick=()=>{const dlg=$('v1CloudDialog');if(!dlg)return;window.BHCloud?.refreshUI?.();dlg.showModal()};
 }
 function v1Date(d){if(!d)return'';const local=new Date(d+'T12:00:00');return isNaN(local)?d:local.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'})}
@@ -94,16 +87,23 @@ function v1Home(){
  const now=localDay(),limit=new Date(now+'T12:00:00');limit.setDate(limit.getDate()+7);const in7=localDay(limit);
  const urgent=data.nodes.filter(n=>isTask(n)&&!n.done&&normalizePriority(n.priority)==='sofort').slice(0,8);
  const due=data.nodes.filter(n=>isTask(n)&&!n.done&&n.due&&n.due<=in7).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,8);
- const birthdays=allNodesOfKind('gift').filter(n=>nextBirthdayDays(n)!==null&&nextBirthdayDays(n)<=28&&!n.done).sort((a,b)=>nextBirthdayDays(a)-nextBirthdayDays(b));
- const routines=(data.routines||[]).filter(routineDue).slice(0,8);
- const cell=(name,body,empty)=>`<section class="v1-dash-card"><h3>${name}</h3>${body||`<p class="hint">${empty}</p>`}</section>`;
+ // Only explicitly selected, unfinished gifts appear here; birthdays outside 28 days are allowed.
+ const birthdays=allNodesOfKind('gift').filter(n=>n.giftPinned===true&&!n.done).sort((a,b)=>(nextBirthdayDays(a)??999)-(nextBirthdayDays(b)??999));
+ const routines=(data.routines||[]).filter(routineDue);
+ const cell=(name,body)=>body?`<section class="v1-dash-card"><h3>${name}</h3>${body}</section>`:'';
  const taskLink=(n,extra='')=>`<button class="v1-dash-row" data-action="v1-node" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${v1Html(rootName(n))}${extra?' · '+v1Html(extra):''}</small></span><span aria-hidden="true">↗</span></button>`;
- return `<div class="v1-home-title"><div><h2>Dein Zuhause für Gedanken 🌿</h2><p class="muted">Was gerade wichtig ist – ohne Benachrichtigungsstress.</p></div><button class="btn" data-action="v1-search">⌕ Suchen</button></div>
- <form class="v1-capture" id="v1CaptureForm"><label for="v1CaptureInput">Schnell in die Inbox</label><div class="v1-capture-row"><input id="v1CaptureInput" required maxlength="250" placeholder="Was möchtest du festhalten?" autocomplete="off"><button type="submit" class="btn primary">＋ Merken</button></div><small class="hint">Erst sammeln, später einordnen. Ohne Häkchen und Priorität.</small></form>
- <div class="v1-dash-grid">${cell('🔴 Sofort-Aufgaben',urgent.map(n=>taskLink(n)).join(''),'Nichts Dringendes. Schön!')}
- ${cell('📅 Termine · nächste 7 Tage',due.map(n=>taskLink(n,v1Date(n.due))).join(''),'Keine anstehenden Fristen.')}
- ${cell('🎁 Geburtstage · nächste 28 Tage',birthdays.map(n=>taskLink(n,'in '+nextBirthdayDays(n)+' Tagen')).join(''),'Keine anstehenden Geburtstage.')}
- ${cell('🌱 Fällige Routinen',routines.map(r=>`<div class="v1-dash-row"><span>${v1Html(r.name)}<small>Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}</small></span><button class="mini" data-action="routine-done" data-id="${v1Html(r.id)}">✓ Gemacht</button></div>`).join(''),'Alles erledigt.')}</div>
+ const giftRow=n=>`<button class="v1-dash-row" data-action="v1-gift-open" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${n.birthday?'Geburtstag in '+nextBirthdayDays(n)+' Tagen':'Geschenk noch offen'}</small></span><span aria-hidden="true">↗</span></button>`;
+ const routineRow=r=>`<div class="v1-dash-row"><span>${v1Html(r.name)}<small>Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}</small></span><button class="mini" data-action="routine-done" data-id="${v1Html(r.id)}">✓ Gemacht</button></div>`;
+ const routineBody=routines.length?routineRow(routines[0])+(routines.length>1?`<details class="v11-more-routines"><summary>${routines.length-1} weitere Routine${routines.length===2?'':'n'} anzeigen</summary>${routines.slice(1).map(routineRow).join('')}</details>`:''):'';
+ const cards=[
+   cell('🔴 Sofort',urgent.map(n=>taskLink(n)).join('')),
+   cell('📅 Anstehende Termine',due.map(n=>taskLink(n,v1Date(n.due))).join('')),
+   cell('🎁 Geschenke',birthdays.map(giftRow).join('')),
+   cell('🌱 Routinen',routineBody)
+ ].filter(Boolean).join('');
+ return `<div class="v1-home-title"><h2>Startseite</h2></div>
+ <form class="v1-capture" id="v1CaptureForm"><label for="v1CaptureInput">Inbox</label><div class="v1-capture-row"><input id="v1CaptureInput" required maxlength="250" placeholder="Gedanken oder Eintrag festhalten" autocomplete="off"><button type="submit" class="btn primary">＋ Merken</button></div></form>
+ ${cards?`<div class="v1-dash-grid">${cards}</div>`:''}
  <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done).length} offene Aufgaben</small></button>`).join('')}</div></div>`;
 }
 function v1SearchHTML(){return `<div class="v1-title-row"><h2>⌕ Alles durchsuchen</h2><button class="btn" data-action="v1-home">← Startseite</button></div><label class="v1-search-label" for="v1SearchInput">Suche in Aufgaben, Notizen, Kategorien, Routinen und Listen</label><input id="v1SearchInput" type="search" value="${v1Html(v1ActiveSearch)}" autocomplete="off" placeholder="Zum Beispiel Stadtführung, Leipzig, Finanzen …"><div id="v1SearchResults">${v1SearchResults()}</div>`}
@@ -144,7 +144,7 @@ function v1Render(){
  document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===data.tab||(data.tab==='tree'&&b.dataset.tab==='projects')));
  if(data.tab==='home'){$('app').innerHTML=v1Home();return}
  if(data.tab==='search'){$('app').innerHTML=v1SearchHTML();return}
- if(data.tab==='trash'){$('app').innerHTML=v1TrashHTML();return}
+ if(data.tab==='trash'){data.tab='home';$('app').innerHTML=v1Home();return}
  v1PreviousRender();v1AddFolderUI();
 }
 const v1PreviousRender=render;render=v1Render;
@@ -154,11 +154,12 @@ function v1InitEvents(){
  document.addEventListener('click',e=>{const pathBtn=e.target.closest('[data-v1-path]'),selectBtn=e.target.closest('[data-v1-select]');if(pathBtn){e.preventDefault();v1SetDestination(pathBtn.dataset.v1Path);return}if(selectBtn){e.preventDefault();v1SetDestination(selectBtn.dataset.v1Select);return}},true);
  document.addEventListener('click',e=>{
    const b=e.target.closest('[data-action]');if(!b)return;const a=b.dataset.action,id=b.dataset.id;
-   if(!['v1-home','v1-search','v1-node','v1-panel','v1-restore'].includes(a))return;
+   if(!['v1-home','v1-search','v1-node','v1-panel','v1-restore','v1-gift-open'].includes(a))return;
    e.preventDefault();e.stopImmediatePropagation();
    if(a==='v1-home'){setTab('home');return}
    if(a==='v1-search'){setTab('search');document.getElementById('v1SearchInput')?.focus();return}
    if(a==='v1-restore'){v1RestoreTrash(id);return}
+   if(a==='v1-gift-open'){panels.gifts=true;localStorage.setItem(PANEL_KEY,JSON.stringify(panels));const priv=privateRoot();if(priv)openProject(priv.id);requestAnimationFrame(()=>document.querySelector('[data-panel="gifts"]')?.scrollIntoView({behavior:'smooth',block:'start'}));return}
    if(a==='v1-panel'){panels[id]=true;localStorage.setItem(PANEL_KEY,JSON.stringify(panels));const priv=privateRoot();if(priv)openProject(priv.id);requestAnimationFrame(()=>document.querySelector(`[data-panel="${id}"]`)?.scrollIntoView({behavior:'smooth'}));return}
    const n=get(id);if(!n)return;if(n.parent==='inbox'){setTab('inbox')}else{const root=rootOf(n);if(root)openProject(root.id)}openEditor(id);
  },true);
@@ -173,7 +174,7 @@ function v1InitEvents(){
  $('app').addEventListener('click',e=>{if(e.target.closest('#v1ProjectTitle')&&Date.now()<blockClickUntil){e.preventDefault();e.stopPropagation()}},true);
 }
 function v1CloudUX(){const dlg=$('v1CloudDialog');dlg.querySelector('[data-v1-close]').onclick=()=>dlg.close();$('v1CloudOfflineNote').textContent='Auch ohne Cloud bleiben deine Einträge lokal verfügbar. Lade zur Sicherheit regelmäßig ein JSON-Backup herunter.';}
-window.BH10={exportData:()=>v1CleanObject(data),applyData:payload=>v1Apply(payload,{history:true,cloud:false}),hasLocalData:v1IsMeaningfulLocal,exportBackup:v1Download,showNotice:notice,updateCloudStatus:(text,status='offline')=>{const node=$('v1CloudDot');if(node)node.textContent=text;const badge=$('v1CloudBtn');if(badge)badge.dataset.cloud=status;},undo:v1UndoAction};
+window.BH10={setDestination:id=>v1SetDestination(id),exportData:()=>v1CleanObject(data),applyData:payload=>v1Apply(payload,{history:true,cloud:false}),hasLocalData:v1IsMeaningfulLocal,exportBackup:v1Download,showNotice:notice,updateCloudStatus:(text,status='offline')=>{const node=$('v1CloudDot');if(node)node.textContent=text;const badge=$('v1CloudBtn');if(badge)badge.dataset.cloud=status;},undo:v1UndoAction};
 if(!Array.isArray(data.trash))data.trash=[];
 // The special Privat area keeps working even if the user renames its visible title.
 const v1Private=data.nodes.find(n=>n.parent===null&&(n.privateArea||n.name==='Privat'||data.nodes.some(c=>c.parent===n.id&&c.name==='Essen')&&data.nodes.some(c=>c.parent===n.id&&c.name==='Geschenke')));
