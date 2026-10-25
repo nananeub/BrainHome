@@ -29,12 +29,6 @@ $('kind').addEventListener('change',()=>queueMicrotask(updatePrepVisibility));
 
 // Optional 'Sofort' switches. New gifts and routines are never marked automatically.
 // Existing priority values survive editing, and a flagged routine appears as urgent only when due.
-const originalRoutineRow=bh09RoutineRow;
-bh09RoutineRow=function(r,active){
- const selected=r.priority==='sofort';
- const toggle=`<button type="button" class="mini bh16-urgent-flag" data-action="bh16-routine-sofort" data-id="${esc(r.id)}" aria-pressed="${selected}" title="Sofort-Kennzeichnung ${selected?'entfernen':'setzen'}">${selected?'● Sofort':'○ Sofort'}</button>`;
- return originalRoutineRow(r,active).replace('<button class="mini" data-action="routine-edit"',toggle+'<button class="mini" data-action="routine-edit"');
-};
 const originalSpecials=specialsHTML;
 specialsHTML=function(){
  const host=document.createElement('div');host.innerHTML=originalSpecials();
@@ -70,9 +64,9 @@ setDone=function(id,newValue){
 window.addEventListener('click',event=>{
  const b=event.target.closest?.('[data-action]');if(!b)return;
  const action=b.dataset.action;
- if(action==='bh16-routine-sofort'||action==='bh16-gift-sofort'){
+ if(action==='bh16-gift-sofort'){
   event.preventDefault();event.stopImmediatePropagation();
-  const record=action==='bh16-routine-sofort'?(data.routines||[]).find(r=>r.id===b.dataset.id):get(b.dataset.id);
+  const record=get(b.dataset.id);
   if(!record)return;
   record.priority=normalizePriority(record.priority)==='sofort'?'':'sofort';
   save();render();return;

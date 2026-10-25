@@ -34,22 +34,23 @@ function inboxHTML(){
 }
 const bh15PriorityRank=n=>({sofort:0,wichtig:1,spaeter:2,'':3})[normalizePriority(n.priority)]??3;
 function bh15TaskRows(nodes){return nodes.map(n=>{
- const pri=normalizePriority(n.priority),area=rootName(n),label=priorityLabel[pri]||'';
+ const pri=normalizePriority(n.priority),area=n.__bhRoutine?'Privat':rootName(n),label=priorityLabel[pri]||'';
+ if(n.__bhRoutine)return `<div class="task bh15-task-item bh17-routine-task" data-priority="${H(pri)}" data-area="${H(area)}"><input type="checkbox" data-action="routine-done" data-id="${H(n.id)}" aria-label="${H(n.name)} erledigen"><button type="button" class="bh15-task-jump" data-action="bh17-routine-open" data-id="${H(n.id)}" title="Bei Routinen öffnen"><strong>${H(n.name)}</strong><small>${label?`<span class="tag ${H(pri)}">${H(label)}</span>`:''}<span>↻ Routine</span></small></button><button type="button" class="btn" data-action="routine-edit" data-id="${H(n.id)}" title="Routine bearbeiten" aria-label="${H(n.name)} bearbeiten">✎</button></div>`;
  return `<div class="task bh15-task-item" data-priority="${H(pri)}" data-area="${H(area)}"><input type="checkbox" data-action="done" data-id="${H(n.id)}" aria-label="${H(n.name)} abhaken"><button type="button" class="bh15-task-jump" data-action="bh15-task-jump" data-id="${H(n.id)}" title="Im Baum öffnen"><strong>${H(n.name)}</strong><small>${label?`<span class="tag ${H(pri)}">${H(label)}</span>`:''}${n.due?`<span>📅 ${H(n.due)}</span>`:''}</small></button><button type="button" class="btn" data-action="edit" data-id="${H(n.id)}" title="Bearbeiten" aria-label="${H(n.name)} bearbeiten">✎</button></div>`
  }).join('')}
 function taskOverviewHTML(){
  const areas=data.nodes.filter(n=>n.parent===null);
  if(areaFilter!=='all'&&!areas.some(n=>n.id===areaFilter))areaFilter='all';
- let tasks=data.nodes.filter(n=>(isTask(n)&&n.parent!=='inbox'||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done);
+ let tasks=[...data.nodes.filter(n=>(isTask(n)&&n.parent!=='inbox'||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done),...(data.routines||[]).filter(r=>(r.asTask===true||(r.asTask==null&&r.priority==='sofort'))&&routineDue(r)).map(r=>({...r,__bhRoutine:true}))];
  let html='';
  if(sortMode==='priority'){
   const rank={sofort:0,wichtig:1,spaeter:2,'':3};
   tasks.sort((a,b)=>(rank[normalizePriority(a.priority)]??3)-(rank[normalizePriority(b.priority)]??3));
   html=bh15TaskRows(tasks);
  }else{
-  if(areaFilter!=='all')tasks=tasks.filter(n=>rootOf(n)?.id===areaFilter);
+  if(areaFilter!=='all')tasks=tasks.filter(n=>n.__bhRoutine?privateRoot()?.id===areaFilter:rootOf(n)?.id===areaFilter);
   html=areas.filter(area=>areaFilter==='all'||areaFilter===area.id).map(area=>{
-    const scoped=tasks.filter(n=>rootOf(n)?.id===area.id);
+    const scoped=tasks.filter(n=>n.__bhRoutine?privateRoot()?.id===area.id:rootOf(n)?.id===area.id);
     return scoped.length?`<h3 class="bh13-area-heading">${H(area.emoji||'🌿')} ${H(area.name)} · ${scoped.length}</h3>${bh15TaskRows(scoped.sort((a,b)=>bh15PriorityRank(a)-bh15PriorityRank(b)))}`:'';
   }).join('');
  }
