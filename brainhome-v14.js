@@ -37,14 +37,7 @@ function refineRoutines(){
   const id=row.querySelector('[data-action="routine-edit"]')?.dataset.id;
   if(id){row.dataset.bh14DragRoutine=id;row.classList.add('bh14-routine-draggable');row.setAttribute('title','Lange drücken und auf eine Untergruppe ziehen');}
  });
- // Dedicated drop zone outside all subgroups, also when no ungrouped routine exists.
- const content=panel.querySelector('.private-panel-content');
- if(content&&!content.querySelector('.bh14-ungrouped')){
-  const zone=document.createElement('div');
-  zone.className='bh14-ungrouped';zone.dataset.bh14DropGroup='';
-  zone.innerHTML='<span aria-hidden="true">↳</span> Ohne Gruppe';
-  content.append(zone);
- }
+ // No visible “Ohne Gruppe” drop box: ungrouped routines appear directly below groups.
  for(const group of panel.querySelectorAll('.routine-subgroup')){
   const id=group.querySelector(':scope > summary [data-action="routine-group-rename"]')?.dataset.id;
   if(!id)continue;
@@ -179,6 +172,9 @@ function getDestination(x,y){
  // Un-grouped routine rows are valid drop targets too.
  const row=el.closest('.routine-record[data-bh14-drag-routine]');
  if(row){const other=(data.routines||[]).find(r=>r.id===row.dataset.bh14DragRoutine);if(other)return {id:other.groupId||'',el:row}}
+ // Drag onto blank routines panel space to remove grouping.
+ const content=el.closest('.private-panel[data-panel="routines"] .private-panel-content');
+ if(content)return {id:'',el:content};
  return null;
 }
 function updateDropTarget(x,y){
@@ -246,7 +242,7 @@ window.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')endHold(e,fal
 window.addEventListener('touchcancel',()=>{clearPending();cleanupDrag()},true);
 window.addEventListener('pointercancel',()=>{clearPending();cleanupDrag()},true);
 app.addEventListener('click',e=>{if(Date.now()<suppressUntil&&e.target.closest('.routine-record')){e.preventDefault();e.stopImmediatePropagation()}},true);
-app.addEventListener('contextmenu',e=>{if(!e.target.closest('.routine-record'))return;if(drag||pending){e.preventDefault()}},true);
+app.addEventListener('contextmenu',e=>{if(!e.target.closest('.routine-record'))return;e.preventDefault();e.stopImmediatePropagation();},true);
 
 window.BH14={version:'1.4'};
 render();

@@ -32,6 +32,11 @@ function inboxHTML(){
  const rowHTML=rows.map(n=>`<div class="task bh12-inbox-item"><input type="checkbox" data-action="bh12-inbox-discard" data-id="${H(n.id)}" aria-label="${H(n.name)} aus Inbox entfernen"><div class="detail"><strong>${H(n.name)}</strong>${n.notes?`<small>${H(n.notes)}</small>`:''}</div><button type="button" class="mini" data-action="edit" data-id="${H(n.id)}" title="Bearbeiten oder einsortieren">✎</button></div>`).join('');
  return topHeading('Inbox','add','inbox','Neuen Eintrag hinzufügen')+`<div class="tasks bh13-compact-tasks">${rowHTML||'<button type="button" class="bh13-empty-add" data-action="add" data-id="inbox">＋ Deine Inbox ist leer · etwas hinzufügen</button>'}</div>`;
 }
+const bh15PriorityRank=n=>({sofort:0,wichtig:1,spaeter:2,'':3})[normalizePriority(n.priority)]??3;
+function bh15TaskRows(nodes){return nodes.map(n=>{
+ const pri=normalizePriority(n.priority),area=rootName(n),label=priorityLabel[pri]||'';
+ return `<div class="task bh15-task-item" data-priority="${H(pri)}" data-area="${H(area)}"><input type="checkbox" data-action="done" data-id="${H(n.id)}" aria-label="${H(n.name)} abhaken"><button type="button" class="bh15-task-jump" data-action="bh15-task-jump" data-id="${H(n.id)}" title="Im Baum öffnen"><strong>${H(n.name)}</strong><small>${label?`<span class="tag ${H(pri)}">${H(label)}</span>`:''}${n.due?`<span>📅 ${H(n.due)}</span>`:''}</small></button><button type="button" class="btn" data-action="edit" data-id="${H(n.id)}" title="Bearbeiten" aria-label="${H(n.name)} bearbeiten">✎</button></div>`
+ }).join('')}
 function taskOverviewHTML(){
  const areas=data.nodes.filter(n=>n.parent===null);
  if(areaFilter!=='all'&&!areas.some(n=>n.id===areaFilter))areaFilter='all';
@@ -40,18 +45,18 @@ function taskOverviewHTML(){
  if(sortMode==='priority'){
   const rank={sofort:0,wichtig:1,spaeter:2,'':3};
   tasks.sort((a,b)=>(rank[normalizePriority(a.priority)]??3)-(rank[normalizePriority(b.priority)]??3));
-  html=taskRows(tasks);
+  html=bh15TaskRows(tasks);
  }else{
   if(areaFilter!=='all')tasks=tasks.filter(n=>rootOf(n)?.id===areaFilter);
   html=areas.filter(area=>areaFilter==='all'||areaFilter===area.id).map(area=>{
     const scoped=tasks.filter(n=>rootOf(n)?.id===area.id);
-    return scoped.length?`<h3 class="bh13-area-heading">${H(area.emoji||'🌿')} ${H(area.name)} · ${scoped.length}</h3>${taskRows(scoped)}`:'';
+    return scoped.length?`<h3 class="bh13-area-heading">${H(area.emoji||'🌿')} ${H(area.name)} · ${scoped.length}</h3>${bh15TaskRows(scoped.sort((a,b)=>bh15PriorityRank(a)-bh15PriorityRank(b)))}`:'';
   }).join('');
  }
  const areaSelect=sortMode==='area'?`<select id="bh13-area-filter" class="bh13-area-filter" aria-label="Lebensbereich auswählen"><option value="all">Alle Lebensbereiche</option>${areas.map(a=>`<option value="${H(a.id)}" ${a.id===areaFilter?'selected':''}>${H(a.emoji||'🌿')} ${H(a.name)}</option>`).join('')}</select>`:'';
  return topHeading('Aufgaben','add','inbox','Neue Aufgabe hinzufügen')+
  `<div class="bh13-sort-panel" role="group" aria-label="Aufgaben sortieren"><button type="button" class="bh13-chip" data-bh13-sort="priority" aria-pressed="${sortMode==='priority'}">Priorität</button><button type="button" class="bh13-chip" data-bh13-sort="area" aria-pressed="${sortMode==='area'}">Lebensbereich</button>${areaSelect}</div>`+
- `<div class="tasks bh13-compact-tasks">${html||'<p class="bh13-history-empty">Keine offenen Aufgaben.</p>'}</div>`;
+ `<div class="tasks bh13-compact-tasks bh15-compact-tasks">${html||'<p class="bh13-history-empty">Keine offenen Aufgaben.</p>'}</div>`;
 }
 
 // A real top-down branching diagram, using CSS connectors rather than expensive SVG measurements.
@@ -96,7 +101,7 @@ function drawGraphPreview(){
  const root=get(data.active),app=$('app');if(!root)return;
  const scroller=app.querySelector('.tree-scroll'),tree=scroller?.querySelector('.tree');if(!tree)return;
  scroller.classList.add('bh13-graph-scroll');tree.classList.add('bh13-tree');
- tree.innerHTML=graphHTML(root,false);
+ tree.innerHTML=graphHTML(root,false);window.BH15?.applyZoom?.('preview');
  const prior=app.querySelector('.bh11-more');if(prior)prior.remove();
  const buttons=document.createElement('div');buttons.className='bh13-graph-controls';
  const count=shownKids(root.id).length;
@@ -114,7 +119,7 @@ function drawFullGraph(resetScroll=false){
  $('bh11TreeToggleDone').textContent=showDone?'✓ Erledigte sichtbar':'Erledigte zeigen';
  $('bh11TreeCount').textContent=data.nodes.filter(n=>rootOf(n)?.id===root.id&&n.id!==root.id).length+' Einträge';
  s.classList.add('bh13-full-scroll');
- const tree=$('bh11TreeContent');tree.classList.add('bh13-full-tree');tree.innerHTML=graphHTML(root,true);
+ const tree=$('bh11TreeContent');tree.classList.add('bh13-full-tree');tree.innerHTML=graphHTML(root,true);window.BH15?.applyZoom?.('full');
  if(resetScroll){s.scrollTop=0;s.scrollLeft=Math.max(0,(s.scrollWidth-s.clientWidth)/2)}
  else{s.scrollLeft=pos.x;s.scrollTop=pos.y}
 }
@@ -219,7 +224,7 @@ function startHold(event){
  if(event.type==='pointerdown'&&event.pointerType==='touch')return; // touch uses touchstart below
  if(event.type==='pointerdown'&&event.button!==0)return;
  if(event.target.closest('button,input,select,textarea,a'))return;
- const row=event.target.closest('.routine-record');
+ const row=null; /* Routine long press handled by v1.4 */
  const group=event.target.closest('.routine-subgroup > summary');
  if(!row&&!group)return;
  let id,kind;if(row){id=row.querySelector('[data-action="routine-edit"]')?.dataset.id;kind='routine'}else{id=group.querySelector('[data-action="routine-group-rename"]')?.dataset.id;kind='group'}
@@ -232,7 +237,7 @@ $('app').addEventListener('touchstart',startHold,{passive:true});
 const moved=e=>{const p=e.touches?.[0]||e;if(hold&&p&&Math.hypot(p.clientX-hold.x,p.clientY-hold.y)>14)cancelHold()};
 window.addEventListener('pointermove',moved);window.addEventListener('touchmove',moved,{passive:true});
 window.addEventListener('pointerup',cancelHold);window.addEventListener('touchend',cancelHold);window.addEventListener('pointercancel',cancelHold);window.addEventListener('touchcancel',cancelHold);
-$('app').addEventListener('contextmenu',event=>{const row=event.target.closest('.routine-record');if(!row)return;const id=row.querySelector('[data-action="routine-edit"]')?.dataset.id;if(!id)return;event.preventDefault();cancelHold();openRoutineMenu('routine',id)});
+$('app').addEventListener('contextmenu',event=>{const row=null; /* Routine long press handled by v1.4 */if(!row)return;const id=row.querySelector('[data-action="routine-edit"]')?.dataset.id;if(!id)return;event.preventDefault();cancelHold();openRoutineMenu('routine',id)});
 document.addEventListener('click',event=>{if(Date.now()<suppressClicksUntil&&event.target.closest('.routine-record,.routine-subgroup>summary')){event.preventDefault();event.stopImmediatePropagation()}},true);
 
 // Load last UI location after all legacy startup scripts have finished.
