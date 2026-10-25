@@ -40,7 +40,7 @@ function bh15TaskRows(nodes){return nodes.map(n=>{
 function taskOverviewHTML(){
  const areas=data.nodes.filter(n=>n.parent===null);
  if(areaFilter!=='all'&&!areas.some(n=>n.id===areaFilter))areaFilter='all';
- let tasks=data.nodes.filter(n=>isTask(n)&&!n.done&&n.parent!=='inbox');
+ let tasks=data.nodes.filter(n=>(isTask(n)&&n.parent!=='inbox'||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done);
  let html='';
  if(sortMode==='priority'){
   const rank={sofort:0,wichtig:1,spaeter:2,'':3};
@@ -145,6 +145,12 @@ function chartDataset(){
  }
  const counts=new Map();for(const n of data.nodes){if(!isTask(n)||!n.done||!n.completedAt)continue;const parsed=dlocal(n.completedAt);if(!parsed)continue;const key=period==='year'?`${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,'0')}`:dateKey(parsed);
   counts.set(key,(counts.get(key)||0)+1)}
+ for(const event of data.completionLog||[]){
+  if(!['routine','gift','prep'].includes(event.kind)||!event.at)continue;
+  const date=dlocal(event.at);if(!date)continue;
+  const key=period==='year'?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`:dateKey(date);
+  counts.set(key,(counts.get(key)||0)+1);
+ }
  current=ends.map(d=>{const key=period==='year'?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`:dateKey(d);const short=period==='week'?d.toLocaleDateString('de-DE',{weekday:'short'}).replace('.',''):period==='month'?String(d.getDate()):d.toLocaleDateString('de-DE',{month:'short'}).replace('.','');
   return {label:short,count:counts.get(key)||0,key};});
  return {label,points:current};
@@ -156,10 +162,13 @@ function chartHTML(){
  return `<section class="bh13-chart"><div class="bh13-chart-head"><strong style="font-size:12px">Erledigte Aufgaben</strong><div class="bh13-periods">${variants}</div></div><div class="bh13-chart-nav"><button data-bh13-nav="-1" title="Vorheriger Zeitraum">‹</button><span>${H(label)}</span><button data-bh13-nav="1" title="Nächster Zeitraum">›</button></div><div class="bh13-chart-scroller"><div class="bh13-bars ${period}">${bars}</div></div><p class="bh13-chart-total">${sum} ${sum===1?'Aufgabe':'Aufgaben'} in diesem Zeitraum</p></section>`;
 }
 function compactHistory(){
- const done=data.nodes.filter(n=>isTask(n)&&n.done).sort((a,b)=>(b.completedAt||'').localeCompare(a.completedAt||''));
- const groups=new Map();for(const n of done){const key=n.completedAt?n.completedAt.slice(0,10):'unknown';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(n)}
- const content=[...groups].map(([day,items])=>`<section class="bh13-history-day"><h3>${day==='unknown'?'Ohne Datum':new Date(day+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</h3>${items.map(n=>`<div class="task" data-area="${H(rootName(n))}"><span class="history-check">✓</span><div class="detail"><strong>${H(n.name)}</strong><small>${H(path(n))}</small></div><button type="button" class="mini" data-action="done" data-id="${H(n.id)}" title="Wieder öffnen">↺</button></div>`).join('')}</section>`).join('');
- return `<section class="bh13-history"><h2>Erledigt</h2>${chartHTML()}${content||'<div class="bh13-history-empty">Noch keine erledigten Aufgaben.</div>'}</section>`;
+ const normal=data.nodes.filter(n=>isTask(n)&&n.done).map(n=>({kind:'task',name:n.name,at:n.completedAt||'',id:n.id,record:n}));
+ const specials=(data.completionLog||[]).filter(ev=>['routine','gift','prep'].includes(ev.kind)&&ev.at).map(ev=>({kind:ev.kind,name:ev.name,at:ev.at,id:ev.sourceId}));
+ const done=[...normal,...specials].sort((a,b)=>(b.at||'').localeCompare(a.at||''));
+ const groups=new Map();for(const item of done){const day=item.at&&dlocal(item.at)?dateKey(dlocal(item.at)):'unknown';if(!groups.has(day))groups.set(day,[]);groups.get(day).push(item)}
+ const labels={routine:'Routine',gift:'Geschenk',prep:'Zubereitung'};
+ const content=[...groups].map(([day,items])=>`<section class="bh13-history-day"><h3>${day==='unknown'?'Ohne Datum':new Date(day+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</h3>${items.map(item=>item.kind==='task'?`<div class="task" data-area="${H(rootName(item.record))}"><span class="history-check">✓</span><div class="detail"><strong>${H(item.name)}</strong><small>${H(path(item.record))}</small></div><button type="button" class="mini" data-action="done" data-id="${H(item.id)}" title="Wieder öffnen">↺</button></div>`:`<div class="task bh16-history-special"><button type="button" class="bh16-history-link" data-action="bh16-open-completion" data-kind="${H(item.kind)}" data-id="${H(item.id)}" aria-label="${H(item.name)} anzeigen"><span class="history-check">✓</span><span>${H(item.name)}</span><span class="bh16-history-kind">${labels[item.kind]}</span></button></div>`).join('')}</section>`).join('');
+ return `<section class="bh13-history"><h2>Erledigt</h2>${chartHTML()}${content||'<div class="bh13-history-empty">Noch keine erledigten Einträge.</div>'}</section>`;
 }
 
 // Bridge the old rendering pipeline. Each desired page is replaced only AFTER the legacy

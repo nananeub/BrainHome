@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -85,18 +85,22 @@ function v1InitHeader(){
 function v1Date(d){if(!d)return'';const local=new Date(d+'T12:00:00');return isNaN(local)?d:local.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'})}
 function v1Home(){
  const now=localDay(),limit=new Date(now+'T12:00:00');limit.setDate(limit.getDate()+7);const in7=localDay(limit);
- const urgent=data.nodes.filter(n=>isTask(n)&&!n.done&&normalizePriority(n.priority)==='sofort').slice(0,8);
+ // 'Sofort' for special entries is strictly opt-in; it does not follow from birthday proximity.
+ const urgent=data.nodes.filter(n=>(isTask(n)||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done&&normalizePriority(n.priority)==='sofort').slice(0,8);
+ const urgentRoutines=(data.routines||[]).filter(r=>r.priority==='sofort'&&routineDue(r));
+ const urgentGifts=allNodesOfKind('gift').filter(n=>!n.done&&normalizePriority(n.priority)==='sofort');
  const due=data.nodes.filter(n=>isTask(n)&&!n.done&&n.due&&n.due<=in7).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,8);
  // Only explicitly selected, unfinished gifts appear here; birthdays outside 28 days are allowed.
- const birthdays=allNodesOfKind('gift').filter(n=>n.giftPinned===true&&!n.done).sort((a,b)=>(nextBirthdayDays(a)??999)-(nextBirthdayDays(b)??999));
- const routines=(data.routines||[]).filter(routineDue);
+ const birthdays=allNodesOfKind('gift').filter(n=>n.giftPinned===true&&!n.done&&normalizePriority(n.priority)!=='sofort').sort((a,b)=>(nextBirthdayDays(a)??999)-(nextBirthdayDays(b)??999));
+ const routines=(data.routines||[]).filter(r=>routineDue(r)&&r.priority!=='sofort');
  const cell=(name,body)=>body?`<section class="v1-dash-card"><h3>${name}</h3>${body}</section>`:'';
  const taskLink=(n,extra='')=>`<button class="v1-dash-row" data-action="v1-node" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${v1Html(rootName(n))}${extra?' · '+v1Html(extra):''}</small></span><span aria-hidden="true">↗</span></button>`;
  const giftRow=n=>`<button class="v1-dash-row" data-action="v1-gift-open" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${n.birthday?'Geburtstag in '+nextBirthdayDays(n)+' Tagen':'Geschenk noch offen'}</small></span><span aria-hidden="true">↗</span></button>`;
  const routineRow=r=>`<div class="v1-dash-row"><span>${v1Html(r.name)}<small>Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}</small></span><button class="mini" data-action="routine-done" data-id="${v1Html(r.id)}">✓ Gemacht</button></div>`;
  const routineBody=routines.length?routineRow(routines[0])+(routines.length>1?`<details class="v11-more-routines"><summary>${routines.length-1} weitere Routine${routines.length===2?'':'n'} anzeigen</summary>${routines.slice(1).map(routineRow).join('')}</details>`:''):'';
+ const urgentBody=[...urgent.map(n=>taskLink(n)),...urgentRoutines.map(routineRow),...urgentGifts.map(giftRow)].slice(0,8).join('');
  const cards=[
-   cell('🔴 Sofort',urgent.map(n=>taskLink(n)).join('')),
+   cell('🔴 Sofort',urgentBody),
    cell('📅 Anstehende Termine',due.map(n=>taskLink(n,v1Date(n.due))).join('')),
    cell('🎁 Geschenke',birthdays.map(giftRow).join('')),
    cell('🌱 Routinen',routineBody)
