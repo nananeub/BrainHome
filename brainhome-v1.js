@@ -89,7 +89,7 @@ function v1Home(){
  const urgent=data.nodes.filter(n=>(isTask(n)||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done&&normalizePriority(n.priority)==='sofort').slice(0,8);
  const urgentRoutines=(data.routines||[]).filter(r=>(r.asTask===true||(r.asTask==null&&r.priority==='sofort'))&&normalizePriority(r.priority)==='sofort'&&routineDue(r));
  const urgentGifts=allNodesOfKind('gift').filter(n=>!n.done&&normalizePriority(n.priority)==='sofort');
- const due=data.nodes.filter(n=>isTask(n)&&!n.done&&n.due&&n.due<=in7).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,8);
+ const due=data.nodes.filter(n=>isTask(n)&&!n.done&&normalizePriority(n.priority)!=='warten'&&n.due&&n.due<=in7).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,8);
  // Only explicitly selected, unfinished gifts appear here; birthdays outside 28 days are allowed.
  const birthdays=allNodesOfKind('gift').filter(n=>n.giftPinned===true&&!n.done&&normalizePriority(n.priority)!=='sofort').sort((a,b)=>(nextBirthdayDays(a)??999)-(nextBirthdayDays(b)??999));
  const routines=(data.routines||[]).filter(r=>routineDue(r)&&!urgentRoutines.includes(r));

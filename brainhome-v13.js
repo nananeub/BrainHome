@@ -41,7 +41,7 @@ function bh15TaskRows(nodes){return nodes.map(n=>{
 function taskOverviewHTML(){
  const areas=data.nodes.filter(n=>n.parent===null);
  if(areaFilter!=='all'&&!areas.some(n=>n.id===areaFilter))areaFilter='all';
- let tasks=[...data.nodes.filter(n=>(isTask(n)&&n.parent!=='inbox'||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done),...(data.routines||[]).filter(r=>(r.asTask===true||(r.asTask==null&&r.priority==='sofort'))&&routineDue(r)).map(r=>({...r,__bhRoutine:true}))];
+ let tasks=[...data.nodes.filter(n=>(isTask(n)&&n.parent!=='inbox'||isPantry(n)&&n.pantryGroup==='In Zubereitung'&&n.prepTask===true)&&!n.done),...(data.routines||[]).filter(r=>(r.asTask===true||(r.asTask==null&&r.priority==='sofort'))&&routineDue(r)).map(r=>({...r,__bhRoutine:true}))].filter(n=>normalizePriority(n.priority)!=='warten');
  let html='';
  if(sortMode==='priority'){
   const rank={sofort:0,wichtig:1,spaeter:2,'':3};

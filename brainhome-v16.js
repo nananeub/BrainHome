@@ -27,24 +27,8 @@ $('pantryGroup').addEventListener('change',updatePrepVisibility);
 $('bh16PrepAsTask').addEventListener('change',updatePrepVisibility);
 $('kind').addEventListener('change',()=>queueMicrotask(updatePrepVisibility));
 
-// Optional 'Sofort' switches. New gifts and routines are never marked automatically.
-// Existing priority values survive editing, and a flagged routine appears as urgent only when due.
-const originalSpecials=specialsHTML;
-specialsHTML=function(){
- const host=document.createElement('div');host.innerHTML=originalSpecials();
- const panel=host.querySelector('.private-panel[data-panel="gifts"]');
- if(!panel)return host.innerHTML;
- for(const row of panel.querySelectorAll('.bh11-gift-choice')){
-  const editor=row.querySelector('[data-action="edit"]');if(!editor)continue;
-  const gift=get(editor.dataset.id);if(!gift||!isGift(gift))continue;
-  const selected=normalizePriority(gift.priority)==='sofort';
-  const toggle=document.createElement('button');toggle.type='button';toggle.className='mini bh16-urgent-flag';
-  toggle.dataset.action='bh16-gift-sofort';toggle.dataset.id=gift.id;toggle.setAttribute('aria-pressed',String(selected));
-  toggle.title='Sofort-Kennzeichnung '+(selected?'entfernen':'setzen');toggle.textContent=selected?'● Sofort':'○ Sofort';
-  editor.before(toggle);
- }
- return host.innerHTML;
-};
+// Birthdays use the same optional priority field as ordinary tasks.
+// No separate urgent toggle is displayed in the gift list.
 function recordCompletion(kind,source){
  data.completionLog.push({id:uid(),kind,sourceId:source.id,name:source.name,at:new Date().toISOString()});
 }
@@ -64,19 +48,14 @@ setDone=function(id,newValue){
 window.addEventListener('click',event=>{
  const b=event.target.closest?.('[data-action]');if(!b)return;
  const action=b.dataset.action;
- if(action==='bh16-gift-sofort'){
-  event.preventDefault();event.stopImmediatePropagation();
-  const record=get(b.dataset.id);
-  if(!record)return;
-  record.priority=normalizePriority(record.priority)==='sofort'?'':'sofort';
-  save();render();return;
- }
  if(action==='routine-done'){
   event.preventDefault();event.stopImmediatePropagation();
   const r=(data.routines||[]).find(x=>x.id===b.dataset.id);
   if(!r||!routineDue(r))return;
   recordCompletion('routine',r);
   r.lastDone=localDay();
+  // Sofort is a one-time decision for the current occurrence only.
+  if(normalizePriority(r.priority)==='sofort')r.priority='';
   save();render();
   return;
  }

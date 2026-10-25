@@ -114,7 +114,7 @@ function bh11DrawFull({resetScroll=false}={}){
  if(!resetScroll){scroller.scrollLeft=x;scroller.scrollTop=y}else{scroller.scrollTop=0;scroller.scrollLeft=0}
 }
 const oldTreeNode=nodeHTML,oldOutline=outlineHTML;
-nodeHTML=function(n,depth){if(window.BH13?.enabled&&viewMode==='visual'&&data.tab==='tree'&&n.id===data.active&&depth===0)return '<div class="bh13-placeholder"></div>';if(data.tab==='tree'&&n.id===data.active&&depth===0)return bh11PreviewHTML(n);return oldTreeNode(n,depth)};
+nodeHTML=function(n,depth){if(data.tab==='tree'&&n.id===data.active&&depth===0)return bh11PreviewHTML(n);return oldTreeNode(n,depth)};
 outlineHTML=function(n,depth=0){if(data.tab==='tree'&&n.id===data.active&&depth===0)return bh11PreviewHTML(n);return oldOutline(n,depth)};
 // The preview has no SVG branches; avoid the costly connector measurements altogether.
 drawConnectors=function(){};
@@ -132,7 +132,7 @@ render=function(){
    if(overview){const more=document.createElement('button');more.type='button';more.className='bh11-more';more.dataset.action='bh11-open-tree';more.textContent='⤢ Gesamten Baum ansehen';overview.after(more)}
    app.querySelectorAll('p.hint').forEach(h=>{if(/Tiefe erhöhen|lange gedrückt halten und verschieben|Einträge ohne Häkchen/i.test(h.textContent))h.remove()});
  }
- if(open&&!window.BH13?.enabled){if(data.tab==='tree')bh11DrawFull();else modal.close()}else if(open&&data.tab!=='tree')modal.close();
+ if(open){if(data.tab==='tree')bh11DrawFull();else modal.close()}
 };
 $('bh11TreeClose').onclick=()=>$('bh11TreeDialog').close();
 $('bh11TreeToggleDone').onclick=()=>{showDone=!showDone;render()};
