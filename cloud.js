@@ -27,10 +27,10 @@ function readableError(error) {
 }
 const configured=!!(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId);
 if (!configured) {
-  cloudStatus('Cloud einrichten');
+  cloudStatus(window.BH_CONFIG_LOAD_ERROR?'Firebase-Datei fehlt':'Cloud einrichten');
   byId('v1CloudLoginBox')?.setAttribute('hidden','');
   byId('v1CloudSetupBox')?.removeAttribute('hidden');
-  cloudMessage('BrainHome speichert lokal. Für die Cloud bitte einmal Firebase einrichten.');
+  cloudMessage(window.BH_CONFIG_LOAD_ERROR?'firebase-config.js konnte nicht geladen werden (Datei fehlt oder Pfad falsch). Prüfe GitHub Pages und lade die Seite neu.':'Firebase-Konfiguration leer oder unvollständig. Stelle die vier Werte aus deiner funktionierenden GitHub-Version wieder her; bestehende lokale Daten bleiben erhalten.',true);
 } else {
   try {
     const [appModule,authModule,firestoreModule]=await Promise.all([
