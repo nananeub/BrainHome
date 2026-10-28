@@ -11,11 +11,11 @@ const saveSort=()=>{try{localStorage.setItem(SORT_KEY,JSON.stringify({mode:sortM
 // The old v1.0 startup always sent you to the dashboard; keep view+project for refresh.
 // The route is UI-only, and does not trigger a cloud upload.
 function rememberRoute(){
- if(!['home','projects','tree','inbox','all','history','search'].includes(data.tab))return;
+ if(!['home','projects','tree','inbox','all','history','search','knowledge'].includes(data.tab))return;
  try{localStorage.setItem(ROUTE_KEY,JSON.stringify({tab:data.tab,active:data.tab==='tree'?data.active:null}))}catch{}
 }
 function restoreRoute(){
- try{const last=JSON.parse(localStorage.getItem(ROUTE_KEY)||'null');if(!last||!['home','projects','tree','inbox','all','history','search'].includes(last.tab))return;
+ try{const last=JSON.parse(localStorage.getItem(ROUTE_KEY)||'null');if(!last||!['home','projects','tree','inbox','all','history','search','knowledge'].includes(last.tab))return;
   if(last.tab==='tree'){
    if(!get(last.active)||get(last.active).parent!==null)return;
    data.active=last.active;
