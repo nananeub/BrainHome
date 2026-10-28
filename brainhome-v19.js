@@ -14,6 +14,8 @@ const nav=document.querySelector('nav.tabs');
 const tab=document.createElement('button');tab.dataset.tab='knowledge';tab.textContent='Wissensbaum';
 const projectTab=nav.querySelector('[data-tab="projects"]');
 if(projectTab)projectTab.replaceWith(tab);else nav.append(tab);
+// The original navigation binds onclick before this extension loads.
+tab.addEventListener('click',()=>setTab('knowledge'));
 const dialog=document.createElement('dialog');dialog.id='bh19Editor';dialog.innerHTML=`<form class="modal" id="bh19Form"><h2 id="bh19Heading">Wissenseintrag</h2><div class="field"><label for="bh19Title">Titel</label><input id="bh19Title" required maxlength="250"></div><div class="field"><label for="bh19Body">Notizen / Zusammenfassung</label><textarea id="bh19Body" rows="11" placeholder="Stichpunkte, Zusammenfassungen, Erkenntnisse …"></textarea></div><div class="field"><label><input type="checkbox" id="bh19Review"> Für tägliche Uni-Wiederholung vormerken</label></div><footer><button type="button" class="btn" id="bh19Cancel">Abbrechen</button><button type="button" class="btn" id="bh19Delete">Löschen</button><button class="btn primary" type="submit">Speichern</button></footer></form>`;
 document.body.append(dialog);
 const form=dialog.querySelector('form'),title=dialog.querySelector('#bh19Title'),body=dialog.querySelector('#bh19Body'),review=dialog.querySelector('#bh19Review');

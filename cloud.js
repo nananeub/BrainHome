@@ -1,130 +1,322 @@
-/* BrainHome cloud sync: optional Firebase Spark; local app never depends on this file. */
-const el=id=>document.getElementById(id);
-const config=window.BRAINHOME_FIREBASE_CONFIG||{};
-const ui=window.BH10;
-const status=(message,type='offline')=>{
- ui?.updateCloudStatus?.(message,type);
- if(el('v1CloudState'))el('v1CloudState').textContent=message;
+/* BrainHome 1.2 — local-first, quiet Firebase backup.
+ * After initial sign-in an established device is authoritative; changes are
+ * uploaded automatically and conflicts are snapshotted without choice dialogs.
+ * A truly fresh device restores the existing cloud database BEFORE writing.
+ * Offline saves always work; no background push or periodic polling required.
+ */
+const byId = id => document.getElementById(id);
+const firebaseConfig = window.BRAINHOME_FIREBASE_CONFIG || {};
+const appUI = window.BH10;
+const cloudStatus = (message, type='offline') => {
+  appUI?.updateCloudStatus?.(message,type);
+  if (byId('v1CloudState')) byId('v1CloudState').textContent=message;
 };
-const errorText=error=>{
- const code=String(error?.code||'');
- if(code.includes('invalid-credential')||code.includes('wrong-password'))return 'E-Mail oder Passwort stimmt nicht.';
- if(code.includes('email-already-in-use'))return 'Diese E-Mail-Adresse hat bereits ein Konto.';
- if(code.includes('weak-password'))return 'Bitte ein Passwort mit mindestens 6 Zeichen verwenden.';
- if(code.includes('invalid-email'))return 'Die E-Mail-Adresse ist ungültig.';
- if(code.includes('network'))return 'Keine Verbindung. Deine Daten sind weiterhin lokal vorhanden.';
- if(code.includes('permission-denied'))return 'Zugriff verweigert. Prüfe die Firestore-Sicherheitsregeln aus der Anleitung.';
- return error?.message||String(error)||'Unbekannter Fehler';
-};
-function message(text,warning=false){const box=el('v1CloudMessage');if(box){box.textContent=text;box.dataset.warning=String(warning)}}
-function configured(){return !!(config.apiKey&&config.projectId&&config.authDomain&&config.appId)}
-if(!configured()){
- status('Cloud einrichten');
- el('v1CloudLoginBox')?.setAttribute('hidden','');
- el('v1CloudSetupBox')?.removeAttribute('hidden');
- message('Die App läuft vollständig lokal. Für automatische Cloud-Backups bitte zuerst Firebase kostenlos einrichten.');
-}else{
- try{
-   const [{initializeApp},{getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,sendPasswordResetEmail,signOut},{getFirestore,doc,getDoc,setDoc,collection,getDocs,deleteDoc,runTransaction,serverTimestamp}]=await Promise.all([
-     import('https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js'),
-     import('https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js'),
-     import('https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js')
-   ]);
-   const firebaseApp=initializeApp(config),auth=getAuth(firebaseApp),db=getFirestore(firebaseApp);
-   let user=null,ready=false,baseRevision=null,cloudBusy=false,dirty=false,uploadTimer=null,pendingChoice=null,lastSnapshotDay='',lastSyncedHash='';
-   const key=(suffix)=>'brainhome-v1-cloud-'+suffix+'-'+(user?.uid||'');
-   const payload=()=>ui.exportData();
-   const serialize=o=>JSON.stringify(o);
-   const digest=str=>{let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
-   const today=()=>{const now=new Date();return [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-')};
-   const refs=()=>({current:doc(db,'users',user.uid,'brainhome','current'),snapshots:collection(db,'users',user.uid,'snapshots')});
-   function showAuth(){const logged=!!user;el('v1CloudLoginBox').hidden=logged;el('v1CloudAccountBox').hidden=!logged;if(logged)el('v1CloudEmail').textContent=user.email||'Angemeldet';}
-   function setReady(v){ready=v;el('v1CloudSyncBtn').disabled=!v;el('v1CloudHistoryBtn').disabled=!v}
-   async function dailyBackup(prior){if(!user||!prior)return;
-     const day=today();if(day===lastSnapshotDay)return;
-     const snapRef=doc(refs().snapshots,day);
-     try{const old=await getDoc(snapRef);if(!old.exists())await setDoc(snapRef,{payload:prior,createdAt:new Date().toISOString(),kind:'daily'});lastSnapshotDay=day;await pruneSnapshots()}catch(e){console.warn('Tägliche Sicherung:',e)}
-   }
-   async function pruneSnapshots(){try{const found=await getDocs(refs().snapshots);const daily=found.docs.filter(d=>d.data()?.kind==='daily').sort((a,b)=>a.id.localeCompare(b.id));for(const entry of daily.slice(0,Math.max(0,daily.length-30)))await deleteDoc(entry.ref)}catch(e){console.warn('Alte Sicherungen:',e)}}
-   async function upload({force=false}={}){
-     if(!user||!ready||cloudBusy||!navigator.onLine){dirty=true;if(!navigator.onLine)status('Offline · lokal gespeichert');return}
-     cloudBusy=true;clearTimeout(uploadTimer);
-     const input=payload(),json=serialize(input),hash=digest(json);
-     if(new Blob([json]).size>850000){status('Backup zu groß');message('Deine Einträge sind für ein einzelnes Cloud-Dokument zu groß. Bitte JSON-Backup exportieren.',true);cloudBusy=false;return}
-     let previous=null,latestRevision=null,newRevision=crypto.randomUUID?.()||String(Date.now())+'-'+Math.random();
-     try{
-       status('Synchronisiere …','working');
-       await runTransaction(db,async tx=>{
-         const current=refs().current,found=await tx.get(current);
-         const old=found.exists()?found.data():null;
-         latestRevision=old?.revision||null;
-         if(!force&&latestRevision!==baseRevision)throw Object.assign(new Error('Cloud wurde auf einem anderen Gerät geändert.'),{code:'brainhome/conflict'});
-         previous=old?.payload||null;
-         tx.set(current,{payload:input,revision:newRevision,updatedAt:serverTimestamp(),clientUpdatedAt:new Date().toISOString()});
-       });
-       baseRevision=newRevision;localStorage.setItem(key('revision'),newRevision);
-       lastSyncedHash=hash;localStorage.setItem(key('hash'),hash);dirty=digest(serialize(payload()))!==hash;
-       status('Gesichert ✓','online');message('Aktueller Stand automatisch gesichert. Die App funktioniert auch offline.');
-       await dailyBackup(previous||input);
-       if(dirty)requestUpload();
-     }catch(e){
-       if(e.code==='brainhome/conflict'){
-         status('Konflikt prüfen');setReady(false);dirty=true;
-         const remote=await getDoc(refs().current);if(remote.exists())showConflict(remote.data()?.payload,remote.data()?.revision,'Auf einem anderen Gerät wurde etwas geändert. Entscheide, welche Version weiterverwendet wird.');
-       }else{status('Nicht gesichert');message('Cloud-Sicherung fehlgeschlagen: '+errorText(e),true);dirty=true}
-     }finally{cloudBusy=false}
-   }
-   function requestUpload(){dirty=true;if(!user||!ready)return;clearTimeout(uploadTimer);uploadTimer=setTimeout(()=>upload(),4500)}
-   function showConflict(remote,rev,description){pendingChoice={remote,revision:rev};setReady(false);el('v1CloudChoice').hidden=false;el('v1CloudChoiceText').textContent=description;message('Bitte zwischen den Datenständen wählen. Bis dahin wird nichts überschrieben.',true);status('Auswahl erforderlich');}
-   function hideConflict(){el('v1CloudChoice').hidden=true;pendingChoice=null}
-   async function loadRemote(remote,rev){if(!remote||!Array.isArray(remote.nodes))throw Error('Das Cloud-Backup enthält keine gültigen Daten.');
-     // Keep a downloadable local backup before replacing even a small local database.
-     if(ui.hasLocalData()){ui.exportBackup()}
-     ui.applyData(remote);baseRevision=rev;localStorage.setItem(key('revision'),rev||'');lastSyncedHash=digest(serialize(payload()));localStorage.setItem(key('hash'),lastSyncedHash);dirty=false;setReady(true);hideConflict();status('Gesichert ✓','online');message('Cloud-Daten auf diesem Gerät geladen.');
-   }
-   async function firstRead(){if(!user||!navigator.onLine){status('Offline · lokal gespeichert');return}cloudBusy=true;setReady(false);
-     try{
-       status('Verbinde …','working');const snap=await getDoc(refs().current),remote=snap.exists()?snap.data():null;
-       const local=payload(),hash=digest(serialize(local));baseRevision=remote?.revision||null;
-       const knownHash=localStorage.getItem(key('hash')),knownRevision=localStorage.getItem(key('revision'));
-       if(!remote){setReady(true);cloudBusy=false;dirty=true;await upload();return}
-       const remoteHash=digest(serialize(remote.payload));
-       if(hash===remoteHash){lastSyncedHash=hash;localStorage.setItem(key('hash'),hash);localStorage.setItem(key('revision'),baseRevision);setReady(true);status('Gesichert ✓','online');message('Handy und Cloud sind auf dem gleichen Stand.');return}
-       if(!ui.hasLocalData()||(knownHash===hash&&knownRevision&&knownRevision!==remote.revision)){
-         await loadRemote(remote.payload,remote.revision);return;
-       }
-       showConflict(remote.payload,remote.revision,'Es gibt lokale Einträge und einen abweichenden Cloud-Datenstand. Wähle bewusst, welche Version übernommen wird.');
-     }catch(e){status('Verbindung fehlgeschlagen');message(errorText(e),true)}finally{cloudBusy=false}
-   }
-   window.BHCloud={markDirty:requestUpload,refreshUI:showAuth,syncNow:()=>upload()};
-   el('v1CloudLoginForm').onsubmit=async e=>{e.preventDefault();const email=el('v1CloudLoginEmail').value.trim(),password=el('v1CloudLoginPassword').value;if(!email||!password)return;message('Anmeldung läuft …');try{await signInWithEmailAndPassword(auth,email,password)}catch(e){message(errorText(e),true)}};
-   el('v1CloudSignUp').onclick=async()=>{const email=el('v1CloudLoginEmail').value.trim(),pw=el('v1CloudLoginPassword').value;if(!email||pw.length<6){message('Bitte E-Mail-Adresse und Passwort mit mindestens 6 Zeichen eingeben.',true);return}if(!confirm('Ein persönliches Cloud-Konto mit dieser E-Mail anlegen?'))return;try{await createUserWithEmailAndPassword(auth,email,pw)}catch(e){message(errorText(e),true)}};
-   el('v1CloudReset').onclick=async()=>{const email=el('v1CloudLoginEmail').value.trim();if(!email)return message('Bitte erst die E-Mail-Adresse eintragen.',true);try{await sendPasswordResetEmail(auth,email);message('Wenn ein Konto existiert, erhältst du eine E-Mail zum Zurücksetzen.')}catch(e){message(errorText(e),true)}};
-   el('v1CloudLogOut').onclick=async()=>{clearTimeout(uploadTimer);if(dirty&&!confirm('Möglicherweise sind noch lokale Änderungen ungesichert. Trotzdem abmelden?'))return;await signOut(auth)};
-   el('v1CloudSyncBtn').onclick=()=>{dirty=true;upload()};
-   el('v1CloudUseRemote').onclick=async()=>{if(!pendingChoice)return;try{await loadRemote(pendingChoice.remote,pendingChoice.revision)}catch(e){message(errorText(e),true)}};
-   el('v1CloudKeepLocal').onclick=async()=>{if(!pendingChoice)return;
-     if(!confirm('Lokale Daten als neuen Cloud-Stand verwenden? Der bisherige Cloud-Stand wird vorher separat gesichert.'))return;
-     try{
-       const prior=pendingChoice.remote;
-       await setDoc(doc(refs().snapshots,'konflikt-'+new Date().toISOString().replace(/[:.]/g,'-')),{payload:prior,createdAt:new Date().toISOString(),kind:'conflict'});
-       baseRevision=pendingChoice.revision;hideConflict();setReady(true);dirty=true;await upload();
-     }catch(e){message('Cloud-Sicherung nicht möglich: '+errorText(e),true)}
-   };
-   el('v1CloudHistoryBtn').onclick=async()=>{
-     const host=el('v1CloudHistory');host.textContent='Sicherungen werden geladen …';
-     try{const snapshots=await getDocs(refs().snapshots);const all=snapshots.docs.sort((a,b)=>b.id.localeCompare(a.id)).slice(0,40);
-       host.replaceChildren();if(!all.length){host.textContent='Noch keine älteren Sicherungen vorhanden.';return}
-       for(const entry of all){const row=document.createElement('div');row.className='v1-cloud-history-row';const label=document.createElement('span');label.textContent=entry.id+(entry.data().kind==='conflict'?' · Konfliktsicherung':'');const btn=document.createElement('button');btn.className='btn';btn.textContent='Wiederherstellen';btn.onclick=async()=>{if(!confirm('Eine ältere Sicherung laden? Die derzeitigen lokalen Einträge werden vorher als JSON-Datei gesichert.'))return;const saved=entry.data().payload;if(!saved?.nodes)return message('Diese Sicherung ist ungültig.',true);ui.exportBackup();ui.applyData(saved);host.textContent='Sicherung geladen. Wird in die Cloud geschrieben …';requestUpload();};row.append(label,btn);host.append(row)}
-     }catch(e){host.textContent='Laden fehlgeschlagen: '+errorText(e)}
-   };
-   onAuthStateChanged(auth,async u=>{
-     clearTimeout(uploadTimer);user=u;dirty=false;baseRevision=null;setReady(false);hideConflict();showAuth();
-     if(!u){status('Anmelden');message('Anmelden, um eine automatische private Cloud-Sicherung zu aktivieren.');return}
-     await firstRead();
-   });
-   window.addEventListener('online',()=>{if(user){if(!ready&&!pendingChoice)firstRead();else if(dirty)requestUpload()}});
-   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&user){if(!ready&&!pendingChoice)firstRead();else if(dirty)requestUpload()}});
-   status('Anmelden');
- }catch(e){status('Cloud nicht verfügbar');message('Firebase konnte nicht geladen werden. Offline funktioniert BrainHome weiter: '+errorText(e),true)}
+function cloudMessage(text, warning=false) {
+  const element=byId('v1CloudMessage');
+  if (element) { element.textContent=text; element.dataset.warning=String(warning); }
+}
+function readableError(error) {
+  const code=String(error?.code || '');
+  if (/invalid-credential|wrong-password/.test(code)) return 'E-Mail oder Passwort stimmt nicht.';
+  if (code.includes('email-already-in-use')) return 'Für diese E-Mail-Adresse gibt es bereits ein Konto.';
+  if (code.includes('weak-password')) return 'Bitte mindestens sechs Zeichen als Passwort verwenden.';
+  if (code.includes('invalid-email')) return 'Die E-Mail-Adresse ist ungültig.';
+  if (/network|unavailable/.test(code)) return 'Verbindung vorübergehend nicht verfügbar. Alles bleibt lokal gespeichert.';
+  if (code.includes('permission-denied')) return 'Firebase-Zugriff nicht erlaubt. Prüfe deine Firestore-Regeln.';
+  return error?.message || String(error) || 'Unbekannter Fehler';
+}
+const configured=!!(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId);
+if (!configured) {
+  cloudStatus('Cloud einrichten');
+  byId('v1CloudLoginBox')?.setAttribute('hidden','');
+  byId('v1CloudSetupBox')?.removeAttribute('hidden');
+  cloudMessage('BrainHome speichert lokal. Für die Cloud bitte einmal Firebase einrichten.');
+} else {
+  try {
+    const [appModule,authModule,firestoreModule]=await Promise.all([
+      import('https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js'),
+      import('https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js')
+    ]);
+    const {initializeApp}=appModule;
+    const {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,sendPasswordResetEmail,signOut}=authModule;
+    const {getFirestore,doc,getDoc,setDoc,collection,getDocs,deleteDoc,runTransaction,serverTimestamp}=firestoreModule;
+    const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+    let user=null,ready=false,busy=false,dirty=false,revision=null,syncedHash='',timer=null,session=0;
+    let latestInput=null,lastDailyCheck='',inFlightRead=false;
+    const LINKED_ACCOUNT='brainhome-v12-linked-account';
+    const key=tag=>'brainhome-v1-cloud-'+tag+'-'+(user?.uid||'');
+    const serialize=obj=>JSON.stringify(obj);
+    const digest=str=>{let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(36)};
+    const currentPayload=()=>appUI.exportData();
+    const hashNow=()=>digest(serialize(currentPayload()));
+    const dayKey=()=>{const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`};
+    const currentRef=()=>doc(db,'users',user.uid,'brainhome','current');
+    const snapshotCollection=()=>collection(db,'users',user.uid,'snapshots');
+    const recordId=()=>new Date().toISOString().replace(/[:.]/g,'-')+'-'+Math.random().toString(36).slice(2,7);
+    const validPayload=p=>p&&Array.isArray(p.nodes)&&p.nodes.every(n=>typeof n?.id==='string'&&typeof n?.name==='string');
+    function persistRevision(newRevision,hash) {
+      revision=newRevision||null;
+      syncedHash=hash;
+      localStorage.setItem(key('revision'),revision||'');
+      localStorage.setItem(key('hash'),hash);
+      localStorage.setItem(LINKED_ACCOUNT,user.uid);
+    }
+    function showAccount() {
+      const active=!!user;
+      byId('v1CloudLoginBox').hidden=active;
+      byId('v1CloudAccountBox').hidden=!active;
+      if (active) byId('v1CloudEmail').textContent=user.email||'Angemeldet';
+    }
+    function setReady(flag) {
+      ready=flag;
+      byId('v1CloudSyncBtn').disabled=!flag;
+      byId('v1CloudHistoryBtn').disabled=!flag;
+    }
+    function scheduleUpload(ms=2000) {
+      dirty=true;
+      if (!user || !ready || !navigator.onLine) {
+        if (!navigator.onLine) cloudStatus('Offline · lokal gespeichert');
+        return;
+      }
+      clearTimeout(timer);
+      timer=setTimeout(()=>{void upload()},ms);
+    }
+    function markDirty() { scheduleUpload(); }
+    function isTooLarge(payload) { return new Blob([serialize(payload)]).size>850000; }
+    async function dailyBackup(previous,connectedSession) {
+      if (!previous || connectedSession!==session || !user) return;
+      const day=dayKey();
+      if (day===lastDailyCheck) return;
+      try {
+        const ref=doc(snapshotCollection(),day),existing=await getDoc(ref);
+        if (!existing.exists()) await setDoc(ref,{payload:previous,createdAt:new Date().toISOString(),kind:'daily'});
+        lastDailyCheck=day;
+        // Cleanup runs only on a new daily snapshot, not every change.
+        const found=await getDocs(snapshotCollection());
+        const daily=found.docs.filter(s=>s.data()?.kind==='daily').sort((a,b)=>a.id.localeCompare(b.id));
+        for (const old of daily.slice(0,Math.max(0,daily.length-30))) await deleteDoc(old.ref);
+      } catch(error) {console.warn('BrainHome: tägliche Sicherung',error);}
+    }
+    async function upload() {
+      if (!user || !ready || !navigator.onLine) { dirty=true;return; }
+      if (busy) { dirty=true;return; }
+      const token=session,uid=user.uid;
+      busy=true;clearTimeout(timer);
+      const input=currentPayload(),json=serialize(input),hash=digest(json);
+      if (isTooLarge(input)) {
+        busy=false;cloudStatus('Cloud-Grenze erreicht');
+        cloudMessage('Cloud-Dokument zu groß. Bitte zusätzlich ein JSON-Backup exportieren.',true);
+        return;
+      }
+      let previous=null,newRevision=null;
+      try {
+        cloudStatus('Sichere …','working');
+        await runTransaction(db,async transaction=>{
+          const reference=doc(db,'users',uid,'brainhome','current');
+          const oldSnapshot=await transaction.get(reference);
+          const old=oldSnapshot.exists()?oldSnapshot.data():null;
+          previous=validPayload(old?.payload)?old.payload:null;
+          const remoteRev=old?.revision||null;
+          // If the cloud changed elsewhere, keep its entire content BEFORE
+          // replacing it with the established device's local database.
+          if (previous && remoteRev!==revision) {
+            transaction.set(doc(db,'users',uid,'snapshots','abweichung-'+recordId()),{
+              payload:previous,createdAt:new Date().toISOString(),kind:'conflict',
+              note:'Automatisch vor der lokalen Aktualisierung gesichert'
+            });
+          }
+          newRevision=(crypto.randomUUID?.()||recordId());
+          transaction.set(reference,{
+            payload:input,revision:newRevision,updatedAt:serverTimestamp(),
+            clientUpdatedAt:new Date().toISOString()
+          });
+        });
+        if (token!==session || user?.uid!==uid) return;
+        persistRevision(newRevision,hash);
+        const updated=hashNow()!==hash;
+        dirty=updated;
+        cloudStatus('Gesichert ✓','online');
+        cloudMessage('Änderungen werden automatisch gesichert, solange BrainHome geöffnet ist.');
+        void dailyBackup(previous||input,token);
+      } catch(error) {
+        dirty=true;cloudStatus('Lokal gespeichert · Cloud später');
+        cloudMessage('Lokaler Stand bleibt erhalten. Cloud-Sicherung: '+readableError(error),true);
+      } finally {
+        busy=false;
+        if (dirty && token===session && user && ready && navigator.onLine) {
+          // Retry after a failure without spamming the service or asking for choices.
+          scheduleUpload(60000);
+        }
+      }
+    }
+    function stashLocal(uid) {
+      // Automatic local recovery copy, not a download prompt or an active backup.
+      try {
+        const name='brainhome-v12-before-device-restore-'+uid;
+        localStorage.setItem(name,JSON.stringify({date:new Date().toISOString(),payload:currentPayload()}));
+      } catch(error) {console.warn('BrainHome: lokale Schutzkopie',error);}
+    }
+    async function restoreRemote(remote,remoteRevision) {
+      if (!validPayload(remote)) throw Error('Cloud-Daten sind nicht lesbar. Der lokale Stand wurde nicht verändert.');
+      if (appUI.hasLocalData()) stashLocal(user.uid);
+      appUI.applyData(remote);
+      persistRevision(remoteRevision,hashNow());
+      dirty=false;
+      setReady(true);
+      cloudStatus('Gesichert ✓','online');
+      cloudMessage('Dein Cloud-Stand wurde auf diesem Gerät wiederhergestellt.');
+    }
+    async function connect() {
+      if (!user || busy || inFlightRead) return;
+      if (!navigator.onLine) {cloudStatus('Offline · lokal gespeichert');return;}
+      const token=session,uid=user.uid;
+      inFlightRead=true;setReady(false);
+      const beforeHash=hashNow();
+      try {
+        cloudStatus('Verbinde …','working');
+        const snapshot=await getDoc(currentRef());
+        if (token!==session || user?.uid!==uid) return;
+        const remote=snapshot.exists()?snapshot.data():null;
+        if (remote && !validPayload(remote.payload)) throw Error('Cloud-Daten ungültig. Kein Überschreiben durchgeführt.');
+        revision=remote?.revision||null;
+        const linked=localStorage.getItem(LINKED_ACCOUNT);
+        const knownRev=localStorage.getItem(key('revision'));
+        if (linked && linked!==uid) {
+          // Switching Firebase accounts must never upload a different person's
+          // local data into the newly signed-in account.
+          if (remote) {
+            await restoreRemote(remote.payload,remote.revision);
+          } else {
+            cloudStatus('Konto ohne Sicherung');
+            cloudMessage('Für dieses Konto gibt es noch keine Sicherung. Melde dich zum bisherigen Konto zurück oder exportiere zunächst ein JSON-Backup.',true);
+          }
+          return;
+        }
+        if (!remote) {
+          setReady(true);
+          scheduleUpload(0);
+          return;
+        }
+        const remoteHash=digest(serialize(remote.payload));
+        if (remoteHash===beforeHash && hashNow()===beforeHash) {
+          persistRevision(remote.revision,beforeHash);
+          dirty=false;setReady(true);
+          cloudStatus('Gesichert ✓','online');
+          cloudMessage('Dein lokaler Datenstand ist bereits gesichert.');
+          return;
+        }
+        // New / empty installation => restore instead of uploading empty roots.
+        if (!appUI.hasLocalData() && hashNow()===beforeHash) {
+          await restoreRemote(remote.payload,remote.revision);
+          return;
+        }
+        // An established device is local-first. Keep its contents without a
+        // confirmation dialog; upload() archives an opposing cloud revision.
+        // If the cloud advanced elsewhere, preserve the exact newer remote copy too.
+        if (remote && (!knownRev || knownRev!==remote.revision)) {
+          // Snapshot the unrecognised remote before adopting this existing local copy.
+          try {await setDoc(doc(snapshotCollection(),'erstverbindung-'+recordId()),{
+            payload:remote.payload,createdAt:new Date().toISOString(),kind:'conflict',
+            note:'Cloud-Stand vor automatischer Übernahme des lokalen Stands'
+          });} catch(error) {
+            // On failure, do not risk overwriting the only remote copy.
+            throw Error('Schutzkopie der bisherigen Cloud nicht möglich. Keine Daten überschrieben: '+readableError(error));
+          }
+        }
+        setReady(true);
+        scheduleUpload(100);
+        cloudMessage('Der aktuelle lokale Stand wird automatisch in der Cloud gesichert.');
+      } catch(error) {
+        cloudStatus('Lokal gespeichert · Cloud später');
+        cloudMessage('Cloud-Verbindung: '+readableError(error),true);
+      } finally {
+        inFlightRead=false;
+        if (ready && dirty && navigator.onLine && !timer) scheduleUpload();
+      }
+    }
+    window.BHCloud={markDirty,refreshUI:showAccount,syncNow:()=>{
+      if(!ready){void connect();return;}scheduleUpload(0);
+    }};
+    byId('v1CloudLoginForm').onsubmit=async event=>{
+      event.preventDefault();
+      const email=byId('v1CloudLoginEmail').value.trim(),password=byId('v1CloudLoginPassword').value;
+      if (!email || !password) return;
+      cloudMessage('Anmeldung läuft …');
+      try {await signInWithEmailAndPassword(auth,email,password)} catch(error) {cloudMessage(readableError(error),true)}
+    };
+    byId('v1CloudSignUp').onclick=async()=>{
+      const email=byId('v1CloudLoginEmail').value.trim(),pw=byId('v1CloudLoginPassword').value;
+      if (!email || pw.length<6) {cloudMessage('Bitte E-Mail und Passwort mit mindestens sechs Zeichen eingeben.',true);return;}
+      if (!confirm('Ein persönliches Cloud-Konto mit dieser E-Mail-Adresse erstellen?')) return;
+      try {await createUserWithEmailAndPassword(auth,email,pw)} catch(error) {cloudMessage(readableError(error),true)}
+    };
+    byId('v1CloudReset').onclick=async()=>{
+      const email=byId('v1CloudLoginEmail').value.trim();
+      if (!email) {cloudMessage('Bitte zuerst eine E-Mail-Adresse eingeben.',true);return;}
+      try {await sendPasswordResetEmail(auth,email);cloudMessage('Sofern das Konto existiert, bekommst du eine E-Mail zum Zurücksetzen.');}
+      catch(error) {cloudMessage(readableError(error),true)}
+    };
+    byId('v1CloudLogOut').onclick=async()=>{
+      clearTimeout(timer);
+      if (dirty && !confirm('Es könnten noch ungesicherte Änderungen vorliegen. Trotzdem abmelden?')) return;
+      await signOut(auth);
+    };
+    byId('v1CloudSyncBtn').onclick=()=>scheduleUpload(0);
+    byId('v1CloudHistoryBtn').onclick=async()=>{
+      const host=byId('v1CloudHistory');
+      host.textContent='Ältere Sicherungen werden geladen …';
+      try {
+        const result=await getDocs(snapshotCollection());
+        const all=result.docs.sort((a,b)=>b.id.localeCompare(a.id)).slice(0,40);
+        host.replaceChildren();
+        if (!all.length) {host.textContent='Noch keine älteren Sicherungen vorhanden.';return;}
+        for (const entry of all) {
+          const row=document.createElement('div'),label=document.createElement('span'),button=document.createElement('button');
+          row.className='v1-cloud-history-row';
+          label.textContent=entry.id+(entry.data().kind==='conflict'?' · vor dem Überschreiben geschützt':'');
+          button.className='btn';button.textContent='Wiederherstellen';
+          button.onclick=async()=>{
+            if (!confirm('Diese ältere Sicherung wiederherstellen? Der momentane Stand wird vorher als JSON gespeichert.'))return;
+            const saved=entry.data().payload;
+            if (!validPayload(saved)) {cloudMessage('Ungültige Sicherung.',true);return;}
+            appUI.exportBackup();appUI.applyData(saved);
+            host.textContent='Ältere Sicherung geladen – wird automatisch hochgeladen.';
+            scheduleUpload(100);
+          };
+          row.append(label,button);host.append(row);
+        }
+      } catch(error) {host.textContent='Laden fehlgeschlagen: '+readableError(error);}
+    };
+    onAuthStateChanged(auth,async nextUser=>{
+      clearTimeout(timer);timer=null;session++;
+      user=nextUser;busy=false;inFlightRead=false;dirty=false;revision=null;setReady(false);
+      showAccount();
+      if (!user) {
+        cloudStatus('Anmelden');
+        cloudMessage('Zum automatischen Cloud-Backup einmal mit E-Mail anmelden.');
+        return;
+      }
+      await connect();
+    });
+    window.addEventListener('online',()=>{
+      if (!user) return;
+      if (!ready) void connect();
+      else if (dirty || hashNow()!==syncedHash) scheduleUpload(1000);
+    });
+    document.addEventListener('visibilitychange',()=>{
+      if (!user) return;
+      if (!document.hidden) {
+        if (!ready) void connect();
+        else if (dirty || hashNow()!==syncedHash) scheduleUpload(1000);
+      } else if (ready && dirty) {
+        // Best effort only; browsers may suspend the app immediately.
+        scheduleUpload(0);
+      }
+    });
+    cloudStatus('Anmelden');
+  } catch(error) {
+    cloudStatus('Cloud vorübergehend nicht verfügbar');
+    cloudMessage('Offline nutzbar. Cloud-Modul: '+readableError(error),true);
+  }
 }
