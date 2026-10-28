@@ -1,6 +1,6 @@
 /* BrainHome v1.0: network-first for files, offline fallback. Firebase data is never cached. */
-const CACHE='brainhome-static-v18';
-const FILES=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./brainhome-v1.js','./brainhome-v11.js','./brainhome-v12.js','./brainhome-v13.js','./brainhome-v14.js','./brainhome-v15.js','./brainhome-v16.js','./brainhome-v17.js','./brainhome-v18.js','./firebase-config.js','./cloud.js'];
+const CACHE='brainhome-static-v19';
+const FILES=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./brainhome-v1.js','./brainhome-v11.js','./brainhome-v12.js','./brainhome-v13.js','./brainhome-v14.js','./brainhome-v15.js','./brainhome-v16.js','./brainhome-v17.js','./brainhome-v18.js','./brainhome-v19.js','./firebase-config.js','./cloud.js'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(async cache=>{for(const file of FILES){try{await cache.add(file)}catch(e){console.warn('Datei nicht vorgehalten:',file,e)}}}).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',event=>{event.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))),self.clients.claim()]))});
 self.addEventListener('fetch',event=>{const req=event.request;if(req.method!=='GET'||new URL(req.url).origin!==self.location.origin)return;event.respondWith(fetch(req).then(response=>{if(response.ok){const cloned=response.clone();caches.open(CACHE).then(cache=>cache.put(req,cloned)).catch(()=>{})}return response}).catch(async()=>{const cached=await caches.match(req);if(cached)return cached;if(req.mode==='navigate'){return (await caches.match('./index.html'))||Response.error()}return Response.error()}))});

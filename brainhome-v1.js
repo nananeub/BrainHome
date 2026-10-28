@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -58,6 +58,7 @@ function v1Apply(payload,{history=true,cloud=true}={}){
  if(cloud)window.BHCloud?.markDirty?.();
 }
 function v1IsMeaningfulLocal(){
+ if((data.knowledgeNodes||[]).length)return true;
  if((data.shopping||[]).length||(data.routines||[]).length||(data.finances||[]).length||(data.songs||[]).length||(data.routineGroups||[]).length)return true;
  return (data.nodes||[]).some(n=>n.userCreated||n.privateSection||(n.parent!==null&&!(['Essen','Geschenke'].includes(n.name)&&n.kind==='category'&&n.parent===privateRoot()?.id)));
 }
