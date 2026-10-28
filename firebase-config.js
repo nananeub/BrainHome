@@ -6,4 +6,8 @@ window.BRAINHOME_FIREBASE_CONFIG = {
   authDomain: "",
   projectId: "",
   appId: ""
+  apiKey: "AIzaSyCgEboMvBaZDmzcFQ4AwJZCvEe07OK8V8M",
+  authDomain: "brainhome-privat.firebaseapp.com",
+  projectId: "brainhome-privat",
+  appId: "1:1001604691095:web:ad0e178469b672b096e5d2"
 };
