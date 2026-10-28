@@ -1,5 +1,5 @@
 /* BrainHome v1.0: network-first for files, offline fallback. Firebase data is never cached. */
-const CACHE='brainhome-static-v19-fix1';
+const CACHE='brainhome-static-v19-fix2';
 const FILES=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./brainhome-v1.js','./brainhome-v11.js','./brainhome-v12.js','./brainhome-v13.js','./brainhome-v14.js','./brainhome-v15.js','./brainhome-v16.js','./brainhome-v17.js','./brainhome-v18.js','./brainhome-v19.js','./firebase-config.js','./cloud.js'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(async cache=>{for(const file of FILES){try{await cache.add(file)}catch(e){console.warn('Datei nicht vorgehalten:',file,e)}}}).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',event=>{event.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))),self.clients.claim()]))});
