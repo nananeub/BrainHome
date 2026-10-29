@@ -1669,61 +1669,90 @@ window.addEventListener('click',e=>{
 
 // The statistical report is hidden by default. It is shown only inside Erledigt
 // and includes real time-based incoming/completed counts.
-let statsVisible=localStorage.getItem(STATS_OPEN)==='1';
+// The completed series is always visible; the incoming series is opt-in.
+let statsShowIncoming=false;
 let statsPeriod='week',statsOffset=0;
 let incomingColor=localStorage.getItem(STATS_COLOR)||'#b37847';
-const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const dayKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function isoWeek(date){
+ const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()));
+ d.setUTCDate(d.getUTCDate()+4-(d.getUTCDay()||7));
+ const year=d.getUTCFullYear(),first=new Date(Date.UTC(year,0,1));
+ return {number:Math.ceil((((d-first)/86400000)+1)/7),year};
+}
 function statsSlots(){
- const today=new Date();today.setHours(12,0,0,0);let slots=[],title='';
- if(statsPeriod==='week'){
-  const d=new Date(today);d.setDate(today.getDate()-((today.getDay()+6)%7)+7*statsOffset);
-  for(let i=0;i<7;i++){const x=new Date(d);x.setDate(d.getDate()+i);slots.push({key:dayKey(x),label:x.toLocaleDateString('de-DE',{weekday:'short'})});}
-  title=slots[0].key+' – '+slots[6].key;
- }else if(statsPeriod==='month'){
-  const first=new Date(today.getFullYear(),today.getMonth()+statsOffset,1,12),days=new Date(first.getFullYear(),first.getMonth()+1,0).getDate();
-  for(let i=1;i<=days;i++){const d=new Date(first.getFullYear(),first.getMonth(),i,12);slots.push({key:dayKey(d),label:String(i)})}
-  title=first.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+ const today=new Date();today.setHours(12,0,0,0);
+ let slots=[],title='';
+ if(statsPeriod==='day'){
+  const date=new Date(today);date.setDate(date.getDate()+statsOffset);
+  const prefix=dayKey(date);
+  for(let i=0;i<24;i++)slots.push({key:prefix+'T'+String(i).padStart(2,'0'),label:i%4===0?String(i).padStart(2,'0')+'h':''});
+  title=date.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
+ }else if(statsPeriod==='week'){
+  const start=new Date(today);start.setDate(today.getDate()-((today.getDay()+6)%7)+7*statsOffset);
+  for(let i=0;i<7;i++){
+   const d=new Date(start);d.setDate(start.getDate()+i);
+   slots.push({key:dayKey(d),label:['Mo','Di','Mi','Do','Fr','Sa','So'][i]});
+  }
+  const kw=isoWeek(start);title=`KW ${kw.number} · ${kw.year}`;
  }else{
-  const year=today.getFullYear()+statsOffset;
-  for(let i=0;i<12;i++){const d=new Date(year,i,1,12);slots.push({key:dayKey(d).slice(0,7),label:d.toLocaleDateString('de-DE',{month:'short'})});}
-  title=String(year);
+  const start=new Date(today.getFullYear(),today.getMonth()+statsOffset,1,12);
+  const days=new Date(start.getFullYear(),start.getMonth()+1,0).getDate();
+  for(let i=1;i<=days;i++){
+   const d=new Date(start.getFullYear(),start.getMonth(),i,12);
+   slots.push({key:dayKey(d),label:String(i)});
+  }
+  title=start.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
  }
- const totals=new Map(slots.map(s=>[s.key,{incoming:0,outgoing:0}]));
- const loggedDone=new Set();
- for(const e of data.taskEvents||[]){
-  if(!e?.at||!['created','completed'].includes(e.type))continue;
-  if(e.type==='completed')loggedDone.add(e.taskId);
-  const date=new Date(e.at);if(Number.isNaN(date.getTime()))continue;
-  const key=statsPeriod==='year'?dayKey(date).slice(0,7):dayKey(date),slot=totals.get(key);
-  if(slot)slot[e.type==='created'?'incoming':'outgoing']++;
+ const totals=new Map(slots.map(item=>[item.key,{incoming:0,outgoing:0}]));
+ const keyFor=raw=>{
+  const date=new Date(raw);if(Number.isNaN(date.getTime()))return null;
+  if(statsPeriod==='day')return dayKey(date)+'T'+String(date.getHours()).padStart(2,'0');
+  return dayKey(date);
+ };
+ const registered=new Set();
+ for(const event of data.taskEvents||[]){
+  if(!event?.at||!['created','completed'].includes(event.type))continue;
+  if(event.type==='completed')registered.add(event.taskId);
+  const slot=totals.get(keyFor(event.at));
+  if(slot)slot[event.type==='created'?'incoming':'outgoing']++;
  }
- // Legacy completedAt is useful real history: count it only if no completion
- // event was ever recorded for that task. Avoid fabricated creation dates.
- for(const n of data.nodes){
-  if(!isTaskRecord(n)||!n.done||!n.completedAt||loggedDone.has(n.id))continue;
-  const date=new Date(n.completedAt);if(Number.isNaN(date.getTime()))continue;
-  const slot=totals.get(statsPeriod==='year'?dayKey(date).slice(0,7):dayKey(date));if(slot)slot.outgoing++;
+ for(const node of data.nodes){
+  if(!isTaskRecord(node)||!node.done||!node.completedAt||registered.has(node.id))continue;
+  const slot=totals.get(keyFor(node.completedAt));if(slot)slot.outgoing++;
  }
- const all=slots.map(s=>({...s,...totals.get(s.key)}));
- return {all,title,incoming:all.reduce((a,b)=>a+b.incoming,0),outgoing:all.reduce((a,b)=>a+b.outgoing,0)};
+ // Older recurring actions were counted in BrainHome's original completion chart.
+ for(const event of data.completionLog||[]){
+  if(!event?.at||!['routine','gift','prep'].includes(event.kind))continue;
+  const slot=totals.get(keyFor(event.at));if(slot)slot.outgoing++;
+ }
+ const all=slots.map(slot=>({...slot,...totals.get(slot.key)}));
+ return {all,title,incoming:all.reduce((total,s)=>total+s.incoming,0),outgoing:all.reduce((total,s)=>total+s.outgoing,0)};
 }
 function reportHTML(){
- const {all,title,incoming,outgoing}=statsSlots(),max=Math.max(1,...all.flatMap(x=>[x.incoming,x.outgoing]));
- const untracked=data.nodes.filter(n=>isTaskRecord(n)&&!n.createdAt&&!(data.taskEvents||[]).some(e=>e.taskId===n.id&&e.type==='created')).length;
- const bars=all.map(s=>`<div class="bh25-stat-slot" title="${esc(s.key)}: ${s.incoming} neu, ${s.outgoing} erledigt"><span class="bh25-stat-pair"><i style="height:${Math.max(1,Math.round(s.incoming/max*75))}px;background:var(--bh25-in)"></i><i style="height:${Math.max(1,Math.round(s.outgoing/max*75))}px;background:#4b986c"></i></span><small>${esc(s.label)}</small></div>`).join('');
- return `<section class="bh25-stats" style="--bh25-in:${esc(incomingColor)}"><div class="bh25-stats-top"><strong>📥 Eingang &amp; Ausgang</strong><label>Eingangsfarbe <input type="color" data-bh25-color value="${esc(incomingColor)}"></label></div><div class="bh25-stats-switch">${[['week','Woche'],['month','Monat'],['year','Jahr']].map(([id,label])=>`<button class="mini" data-bh25-period="${id}" aria-pressed="${statsPeriod===id}">${label}</button>`).join('')}</div><div class="bh25-stats-nav"><button class="mini" data-bh25-shift="-1" aria-label="Vorheriger Zeitraum">‹</button><span>${esc(title)}</span><button class="mini" data-bh25-shift="1" aria-label="Nächster Zeitraum">›</button></div><div class="bh25-stat-totals"><span style="color:var(--bh25-in)">＋ ${incoming} neue Aufgaben</span><span style="color:#397c56">✓ ${outgoing} erledigt</span><strong>Saldo ${incoming-outgoing>0?'+':''}${incoming-outgoing}</strong></div><div class="bh25-stat-chart">${bars}</div><p class="hint">Gezählt werden neu angelegte oder zu Aufgaben umgewandelte Einträge und ihre Abschlüsse. Reine Inbox-Notizen zählen nicht. ${untracked?'Bei '+untracked+' älteren Aufgaben fehlt das ursprüngliche Anlagedatum; deren Eingang kann rückwirkend nicht genau gezählt werden.':''} Wiederholtes Erledigen wird als erneuter Abschluss erfasst.</p></section>`;
+ const {all,title,incoming,outgoing}=statsSlots();
+ const max=Math.max(1,...all.map(x=>statsShowIncoming?Math.max(x.incoming,x.outgoing):x.outgoing));
+ const bars=all.map(s=>{
+  const inBar=statsShowIncoming?`<span class="bh26-bar bh26-in" style="height:${s.incoming?Math.max(3,Math.round(s.incoming/max*78)):2}px" aria-hidden="true"></span>`:'';
+  const doneBar=`<span class="bh26-bar bh26-done" style="height:${s.outgoing?Math.max(3,Math.round(s.outgoing/max*78)):2}px" aria-hidden="true"></span>`;
+  const number=statsShowIncoming?`${s.incoming||''}${s.incoming||s.outgoing?' / ':''}${s.outgoing||''}`:(s.outgoing||'');
+  return `<div class="bh26-slot" title="${esc(s.key)}: ${s.outgoing} erledigt${statsShowIncoming?', '+s.incoming+' hinzugefügt':''}"><span class="bh26-value">${esc(number)}</span><div class="bh26-pair">${inBar}${doneBar}</div><span class="bh26-label">${esc(s.label)}</span></div>`;
+ }).join('');
+ const periodButtons=[['day','Tag'],['week','Woche'],['month','Monat']].map(([id,label])=>`<button type="button" data-bh25-period="${id}" aria-pressed="${statsPeriod===id}" class="bh26-period">${label}</button>`).join('');
+ return `<section class="bh26-report" style="--bh26-in:${esc(incomingColor)}" aria-label="Aufgabenstatistik">
+ <div class="bh26-top"><strong>Erledigte Aufgaben</strong><div class="bh26-periods" role="group" aria-label="Zeitraum">${periodButtons}</div></div>
+ <div class="bh26-nav"><button type="button" data-bh25-shift="-1" aria-label="Vorheriger Zeitraum">‹</button><span>${esc(title)}</span><button type="button" data-bh25-shift="1" aria-label="Nächster Zeitraum">›</button></div>
+ <div class="bh26-scroller"><div class="bh26-bars bh26-${statsPeriod}">${bars}</div></div>
+ <div class="bh26-bottom"><span class="bh26-done-total">✓ ${outgoing} erledigt</span>${statsShowIncoming?`<span class="bh26-in-total">＋ ${incoming} hinzugefügt</span><label class="bh26-color" title="Farbe für hinzugefügte Aufgaben">Farbe <input type="color" data-bh25-color value="${esc(incomingColor)}" aria-label="Farbe der Eingänge"></label>`:''}<button class="bh26-in-toggle" type="button" data-bh25-stats-toggle aria-pressed="${statsShowIncoming}">${statsShowIncoming?'✓ Hinzugefügte sichtbar':'＋ Hinzugefügte anzeigen'}</button></div>
+ </section>`;
 }
-// Intercept the history content at the final rendering stage: avoid ever showing
-// the previous always-visible graph or the incorrect inventory counter.
 function adjustHistory(){
  if(data.tab!=='history')return;
  const history=document.querySelector('#app .bh13-history');if(!history)return;
  history.querySelector('.bh13-chart')?.remove();history.querySelector('.bh24-flow')?.remove();
  const headline=history.querySelector('h2');if(!headline)return;
- const btn=document.createElement('button');btn.className='btn bh25-stats-toggle';btn.type='button';btn.dataset.bh25StatsToggle='';btn.textContent=statsVisible?'📊 Statistik ausblenden':'📊 Statistik anzeigen';
- headline.after(btn);
- if(statsVisible)btn.insertAdjacentHTML('afterend',reportHTML());
- // Historical completion events for reopened tasks remain visible.
+ headline.insertAdjacentHTML('afterend',reportHTML());
+ // Reopened tasks continue to have their former completion events.
  const done=new Set(data.nodes.filter(n=>isTaskRecord(n)&&n.done).map(n=>n.id));
  const old=(data.taskEvents||[]).filter(e=>e.type==='completed'&&!done.has(e.taskId));
  if(old.length){const section=document.createElement('section');section.className='bh25-past-completions';section.innerHTML='<h3>Frühere Abschlüsse (erneut geöffnet)</h3>'+old.slice().reverse().map(e=>`<div class="task"><span class="history-check">✓</span><div class="detail"><strong>${esc(e.name)}</strong><small>${esc(e.at.slice(0,10))}</small></div></div>`).join('');history.append(section)}
@@ -1731,21 +1760,113 @@ function adjustHistory(){
 document.addEventListener('click',e=>{
  const b=e.target.closest?.('[data-bh25-stats-toggle],[data-bh25-period],[data-bh25-shift]');if(!b)return;
  e.preventDefault();e.stopImmediatePropagation();
- if(b.hasAttribute('data-bh25-stats-toggle')){statsVisible=!statsVisible;localStorage.setItem(STATS_OPEN,statsVisible?'1':'0')}
+ if(b.hasAttribute('data-bh25-stats-toggle'))statsShowIncoming=!statsShowIncoming;
  if(b.hasAttribute('data-bh25-period')){statsPeriod=b.dataset.bh25Period;statsOffset=0}
  if(b.hasAttribute('data-bh25-shift'))statsOffset+=Number(b.dataset.bh25Shift);
  render();
 },true);
 document.addEventListener('input',e=>{if(e.target.hasAttribute('data-bh25-color')){
- incomingColor=e.target.value;localStorage.setItem(STATS_COLOR,incomingColor);e.target.closest('.bh25-stats')?.style.setProperty('--bh25-in',incomingColor);
- e.target.closest('.bh25-stats')?.querySelectorAll('[data-bh25-color]').forEach(el=>el.value=incomingColor);
+ incomingColor=e.target.value;localStorage.setItem(STATS_COLOR,incomingColor);
+ e.target.closest('.bh26-report')?.style.setProperty('--bh26-in',incomingColor);
 }},true);
 
+// Studienstiftung: nested projects and dated events, stored as existing nodes.
+// Appointments are non-checkable entries, so a calendar event does not distort
+// the completion statistic. Every entry retains its ordinary node ID and notes.
+const foundationRoot=()=>data.nodes.find(n=>n.parent===null && /^Studienstiftung(?: des deutschen Volkes)?$/i.test(n.name));
+function foundationFolder(name){
+ const root=foundationRoot();if(!root)return null;
+ return data.nodes.find(n=>n.parent===root.id && isCategory(n) && n.name===name)||null;
+}
+function ensureFoundationFolders(){
+ const root=foundationRoot();if(!root)return;
+ let changed=false;
+ for(const name of ['Projekte','Termine']){
+  if(foundationFolder(name))continue;
+  data.nodes.push({id:uid(),parent:root.id,name,kind:'category',checkable:false,done:false,priority:'',due:'',notes:'',collapsed:false,userCreated:true});changed=true;
+ }
+ if(changed)save();
+}
+const foundationDialog=document.createElement('dialog');
+foundationDialog.className='bh26-appointment-dialog';
+foundationDialog.innerHTML=`<form class="modal" id="bh26AppointmentForm"><h2 id="bh26AppointmentTitle">Termin eintragen</h2>
+<div class="field"><label for="bh26AppointmentName">Termin</label><input id="bh26AppointmentName" maxlength="250" required autocomplete="off"></div>
+<div class="field"><label for="bh26AppointmentDate">Datum</label><input type="date" id="bh26AppointmentDate" required></div>
+<div class="field"><label for="bh26AppointmentTime">Uhrzeit (optional)</label><input type="time" id="bh26AppointmentTime"></div>
+<div class="field"><label for="bh26AppointmentParent">Zuordnung</label><select id="bh26AppointmentParent"></select></div>
+<div class="field"><label for="bh26AppointmentNotes">Notizen (optional)</label><textarea id="bh26AppointmentNotes" rows="3"></textarea></div>
+<footer><button type="button" class="btn" data-bh26-appointment-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
+document.body.append(foundationDialog);
+let editingAppointment=null;
+const fld=id=>foundationDialog.querySelector('#'+id);
+function foundationBranches(){
+ const root=foundationRoot();if(!root)return[];
+ const results=[],pending=[root],seen=new Set();
+ while(pending.length){const parent=pending.shift();if(seen.has(parent.id))continue;seen.add(parent.id);
+  for(const child of kids(parent.id))if(isCategory(child)){
+   results.push(child);pending.push(child);
+  }
+ }
+ return results;
+}
+function openFoundationAppointment(id=null){
+ ensureFoundationFolders();const entry=id?get(id):null;
+ editingAppointment=entry?.id||null;
+ const choices=foundationBranches();
+ fld('bh26AppointmentParent').replaceChildren(...choices.map(n=>new Option(path(n),n.id)));
+ fld('bh26AppointmentParent').value=entry?.parent||foundationFolder('Termine')?.id||foundationRoot()?.id;
+ fld('bh26AppointmentName').value=entry?.name||'';
+ fld('bh26AppointmentDate').value=entry?.due||'';
+ fld('bh26AppointmentTime').value=entry?.appointmentTime||'';
+ fld('bh26AppointmentNotes').value=entry?.notes||'';
+ fld('bh26AppointmentTitle').textContent=entry?'Termin bearbeiten':'Termin eintragen';
+ foundationDialog.showModal();fld('bh26AppointmentName').focus();
+}
+foundationDialog.querySelector('[data-bh26-appointment-cancel]').onclick=()=>foundationDialog.close();
+foundationDialog.querySelector('form').addEventListener('submit',e=>{
+ e.preventDefault();const root=foundationRoot();if(!root)return;
+ const name=fld('bh26AppointmentName').value.trim(),due=fld('bh26AppointmentDate').value;
+ const parent=fld('bh26AppointmentParent').value;
+ if(!name||!due||!foundationBranches().some(n=>n.id===parent))return;
+ const fields={name,due,parent,notes:fld('bh26AppointmentNotes').value,appointment:true,appointmentTime:fld('bh26AppointmentTime').value,kind:'list',checkable:false,done:false,priority:''};
+ if(editingAppointment){const n=get(editingAppointment);if(n)Object.assign(n,fields)}
+ else data.nodes.push({id:uid(),collapsed:false,...fields});
+ save();foundationDialog.close();render();notice('Termin gespeichert');
+});
+function addFoundationUI(){
+ const root=foundationRoot();if(!root||data.tab!=='tree'||data.active!==root.id)return;
+ ensureFoundationFolders();
+ const host=document.querySelector('#app');if(!host)return;
+ const topline=host.querySelector('.topline');
+ if(topline&&!topline.querySelector('[data-bh26-add-project]')){
+  const controls=document.createElement('div');controls.className='bh26-foundation-actions';
+  controls.innerHTML='<button type="button" class="btn" data-bh26-add-project>＋ Projekt</button><button type="button" class="btn" data-bh26-add-date>＋ Termin</button>';
+  topline.append(controls);
+ }
+ const appointments=data.nodes.filter(n=>n.appointment && n.due && rootOf(n)?.id===root.id && !n.archived);
+ if(!appointments.length)return;
+ appointments.sort((a,b)=>(a.due+'T'+(a.appointmentTime||'00:00')).localeCompare(b.due+'T'+(b.appointmentTime||'00:00')));
+ const panel=document.createElement('section');panel.className='bh26-foundation-dates';
+ panel.innerHTML=`<h3>Termine</h3>${appointments.map(n=>`<button type="button" data-bh26-edit-date="${esc(n.id)}" class="bh26-foundation-date"><time>${esc(new Date(n.due+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'}))}${n.appointmentTime?' · '+esc(n.appointmentTime):''}</time><span>${esc(n.name)}</span><span aria-hidden="true">✎</span></button>`).join('')}`;
+ topline?.after(panel);
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest?.('[data-bh26-add-project],[data-bh26-add-date],[data-bh26-edit-date]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(b.hasAttribute('data-bh26-add-date')){openFoundationAppointment();return;}
+ if(b.hasAttribute('data-bh26-edit-date')){openFoundationAppointment(b.dataset.bh26EditDate);return;}
+ const folder=foundationFolder('Projekte');if(!folder)return;
+ openEditor(null,folder.id);
+ $('kind').value='category';$('priority').value='';$('checkable').checked=false;updateEditorFields();
+},true);
 // Keep the correct page even after legacy render wrappers and cloud replacement.
 const beforeRender=render;
 render=function(...args){
+ // Initialize the new folders only when Studienstiftung is actually opened.
+ // Doing it at application boot could make a fresh device look nonempty before Cloud restore.
+ if(data.tab==='tree' && data.active===foundationRoot()?.id)ensureFoundationFolders();
  const result=beforeRender(...args);
- adjustInbox();addNotesButton();moveActualPanels();adjustHistory();
+ adjustInbox();addNotesButton();moveActualPanels();adjustHistory();addFoundationUI();
  resetKnown();
  if(!document.querySelector('#bh19FullDialog')?.open)routeSave();
  return result;
@@ -1756,5 +1877,38 @@ const priorOpen=openProject;openProject=function(id){const result=priorOpen(id);
 routeRestore();render();
 window.addEventListener('pageshow',e=>{if(e.persisted){routeRestore();render()}});
 window.BH25={getRoute:visibleRoute,statsSlots,rerender:()=>render()};
-const style=document.createElement('style');style.textContent=`.bh25-relationship-lists{margin-top:18px}.bh25-relationship-lists h3{margin:0 0 10px}.bh25-notes-button{margin:8px 0}.bh25-task-chip{display:inline-block;color:#397c56;font-size:.72rem;border:1px solid #b8d0bc;border-radius:10px;padding:1px 6px}.bh25-stats-toggle{margin:8px 0 16px}.bh25-stats{background:var(--card,#fff);border:1px solid #d9e4db;border-radius:15px;padding:14px;margin-bottom:18px}.bh25-stats-top,.bh25-stats-nav,.bh25-stat-totals{display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap}.bh25-stats-top label{font-size:.8rem}.bh25-stats-switch{display:flex;gap:8px;margin:12px 0}.bh25-stats-nav{justify-content:center}.bh25-stat-totals{padding:14px 0;font-weight:600}.bh25-stat-chart{overflow-x:auto;display:flex;align-items:end;min-height:125px;gap:3px;padding:12px 0 0;border-bottom:1px solid #ddd}.bh25-stat-slot{min-width:23px;flex:1;text-align:center}.bh25-stat-pair{display:flex;align-items:end;justify-content:center;gap:2px;height:79px}.bh25-stat-pair i{display:block;width:9px;border-radius:3px 3px 0 0}.bh25-stat-slot small{font-size:.64rem}.bh25-notes-dialog{max-width:min(94vw,640px)}.bh25-notes-dialog textarea{min-height:220px;width:100%}.bh25-past-completions{margin-top:22px}`;document.head.append(style);
+const style=document.createElement('style');style.textContent=`
+.bh25-relationship-lists{margin-top:18px}.bh25-relationship-lists h3{margin:0 0 10px}
+.bh25-notes-button{margin:8px 0}.bh25-task-chip{display:inline-block;color:#397c56;font-size:.72rem;border:1px solid #b8d0bc;border-radius:10px;padding:1px 6px}.bh25-notes-dialog{max-width:min(94vw,640px)}.bh25-notes-dialog textarea{min-height:220px;width:100%}.bh25-past-completions{margin-top:22px}
+.bh26-report{background:#fafdf9;border:1px solid #dbe7db;border-radius:13px;padding:12px 11px;margin:6px 0 15px;color:#355c43}
+.bh26-top,.bh26-bottom{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.bh26-top strong{font-size:12px}.bh26-periods{display:flex;gap:4px}
+.bh26-period{border:1px solid #d9e6d7;background:#f4f8f2;color:#456950;font-size:11px;padding:6px 10px;border-radius:8px;min-height:30px}
+.bh26-period[aria-pressed="true"]{background:#315b42;color:#fff;border-color:#315b42;box-shadow:0 0 0 1px #315b42}
+.bh26-nav{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 0 4px;font-size:12px;color:#496a55;font-weight:600}
+.bh26-nav button{background:transparent;border:0;color:#54775e;padding:5px 10px;font-size:19px;min-width:34px}
+.bh26-scroller{overflow-x:auto;scrollbar-width:thin;touch-action:pan-x}
+.bh26-bars{display:flex;align-items:flex-end;width:100%;height:122px;gap:3px;padding:5px 0 1px;border-bottom:1px solid #dbe7db}
+.bh26-bars.bh26-day,.bh26-bars.bh26-month{min-width:430px}
+.bh26-slot{min-width:0;flex:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px}
+.bh26-value{height:11px;font-size:9px;color:#355c43;line-height:11px;white-space:nowrap}
+.bh26-pair{height:79px;display:flex;align-items:flex-end;justify-content:center;gap:2px;width:100%}
+.bh26-bar{display:block;min-width:3px;width:min(38%,22px);border-radius:4px 4px 1px 1px}
+.bh26-bar.bh26-done{background:#689977}.bh26-bar.bh26-in{background:var(--bh26-in)}
+.bh26-label{height:13px;font-size:9px;line-height:13px;color:#72917b;white-space:nowrap}
+.bh26-bottom{padding-top:10px;justify-content:flex-start;font-size:11px}
+.bh26-done-total{font-weight:650;color:#397c56}.bh26-in-total{font-weight:600;color:var(--bh26-in)}
+.bh26-in-toggle{margin-left:auto;font-size:11px;background:#f0f6ef;color:#3d674b;border:1px solid #d3e3d4;border-radius:8px;padding:6px 9px;min-height:30px}
+.bh26-in-toggle[aria-pressed="true"]{background:#e3efe5;border-color:#90b398}
+.bh26-color{display:flex;align-items:center;gap:5px;font-size:10px;color:#687e6c}
+.bh26-color input{width:26px;height:23px;padding:0;border:0;background:transparent}
+.bh26-foundation-actions{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}
+.bh26-foundation-actions .btn{font-size:12px;padding:7px 9px}
+.bh26-foundation-dates{background:#f6f0fb;border:1px solid #dacbe9;border-radius:12px;margin:9px 0 13px;padding:10px}
+.bh26-foundation-dates h3{font-size:12px;font-weight:680;margin:0 0 6px;color:#69548f}
+.bh26-foundation-date{width:100%;border:0;border-top:1px solid #e5d9ee;background:transparent;display:flex;align-items:center;gap:10px;text-align:left;padding:7px 1px;font-size:12px;color:#514165}
+.bh26-foundation-date time{white-space:nowrap;min-width:106px;color:#796394;font-size:11px}
+.bh26-foundation-date span:nth-child(2){flex:1}.bh26-foundation-date:hover{background:#ede3f5}
+@media(max-width:460px){.bh26-foundation-date{flex-wrap:wrap;gap:3px 8px}.bh26-foundation-date time{min-width:0}.bh26-foundation-actions{width:100%}}
+`;document.head.append(style);
 })();
