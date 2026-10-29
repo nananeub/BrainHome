@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','activityLog'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','taskEvents'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -103,8 +103,6 @@ function v1Home(){
  const routineRow=r=>`<div class="v1-dash-row"><span>${v1Html(r.name)}<small>Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}</small></span><button class="mini" data-action="routine-done" data-id="${v1Html(r.id)}">✓ Gemacht</button></div>`;
  const routineBody=routines.map(routineRow).join('');
  const urgentBody=[...urgent.map(n=>taskLink(n)),...urgentRoutines.map(routineRow),...urgentGifts.map(giftRow)].slice(0,8).join('');
- const stats=window.BH24Stats?.()||{incoming:0,outgoing:0};
- const statsCard=`<section class="v1-dash-card bh24-stats"><h3>📊 Eingang & Ausgang · 30 Tage</h3><div class="bh24-statrow"><span>＋ Neu <strong>${stats.incoming}</strong></span><span>✓ Erledigt <strong>${stats.outgoing}</strong></span></div><small>Erfasst ab diesem Update · frühere Eingänge nicht rekonstruierbar</small></section>`;
  const cards=[
    cell('🔴 Sofort',urgentBody,'sofort'),
    cell('📅 Anstehende Termine',due.map(n=>taskLink(n,v1Date(n.due))).join('')),
@@ -113,7 +111,7 @@ function v1Home(){
  ].filter(Boolean).join('');
  return `<div class="v1-home-title"><h2>Startseite</h2></div>
  <form class="v1-capture" id="v1CaptureForm"><label for="v1CaptureInput">Inbox</label><div class="v1-capture-row"><input id="v1CaptureInput" required maxlength="250" placeholder="Gedanken oder Eintrag festhalten" autocomplete="off"><button type="submit" class="btn primary">＋ Merken</button></div></form>
- ${cards?`<div class="v1-dash-grid">${cards}${statsCard}</div>`:`<div class="v1-dash-grid">${statsCard}</div>`}
+ ${cards?`<div class="v1-dash-grid">${cards}</div>`:''}
  <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done).length} offene Aufgaben</small></button>`).join('')}</div></div>`;
 }
 // Keep the two noisy home sections collapsed across refreshes and devices on this browser.
@@ -453,11 +451,14 @@ const H = s => esc(s);
 const ROUTE_KEY='brainhome-v13-last-view', SORT_KEY='brainhome-v13-task-sort';
 let sortMode='priority',areaFilter='all',period='week',periodOffset=0;
 const graphPosition=new Map();
+let bhRouteReady=false;
+window.BHRoute={remember:()=>rememberRoute(),restore:()=>restoreRoute(),activate:()=>{restoreRoute();bhRouteReady=true;}};
 try { const p=JSON.parse(localStorage.getItem(SORT_KEY)||'{}');sortMode=p.mode==='area'?'area':'priority';areaFilter=typeof p.area==='string'?p.area:'all'; }catch{}
 const saveSort=()=>{try{localStorage.setItem(SORT_KEY,JSON.stringify({mode:sortMode,area:areaFilter}))}catch{}};
 // The old v1.0 startup always sent you to the dashboard; keep view+project for refresh.
 // The route is UI-only, and does not trigger a cloud upload.
 function rememberRoute(){
+ if(!bhRouteReady)return;
  if(!['home','projects','tree','inbox','all','history','search','knowledge'].includes(data.tab))return;
  try{localStorage.setItem(ROUTE_KEY,JSON.stringify({tab:data.tab,active:data.tab==='tree'?data.active:null}))}catch{}
 }
@@ -1415,7 +1416,7 @@ const tab=document.createElement('button');tab.dataset.tab='knowledge';tab.textC
 const projectTab=nav.querySelector('[data-tab="projects"]');
 if(projectTab)projectTab.replaceWith(tab);else nav.append(tab);
 // The original navigation binds onclick before this extension loads.
-window.addEventListener('click',e=>{if(!e.target.closest?.('nav.tabs [data-tab="knowledge"]'))return;e.preventDefault();e.stopImmediatePropagation();data.tab='knowledge';rememberRoute();render()},true);
+tab.addEventListener('click',e=>{e.stopImmediatePropagation();setTab('knowledge')},true);
 const dialog=document.createElement('dialog');dialog.id='bh19Editor';dialog.innerHTML=`<form class="modal" id="bh19Form"><h2 id="bh19Heading">Wissenseintrag</h2><div class="field"><label for="bh19Title">Titel</label><input id="bh19Title" required maxlength="250"></div><div class="field"><label for="bh19Body">Notizen / Zusammenfassung</label><textarea id="bh19Body" rows="11" placeholder="Stichpunkte, Zusammenfassungen, Erkenntnisse …"></textarea></div><div class="field"><label><input type="checkbox" id="bh19Review"> Für tägliche Uni-Wiederholung vormerken</label></div><footer><button type="button" class="btn" id="bh19Cancel">Abbrechen</button><button type="button" class="btn" id="bh19Delete">Löschen</button><button class="btn primary" type="submit">Speichern</button></footer></form>`;
 document.body.append(dialog);
 const form=dialog.querySelector('form'),title=dialog.querySelector('#bh19Title'),body=dialog.querySelector('#bh19Body'),review=dialog.querySelector('#bh19Review');
@@ -1434,7 +1435,7 @@ fullscreen.querySelector('#bh19ZoomIn').onclick=()=>setZoom(zoom+.15);
 fullscreen.querySelector('#bh19ZoomReset').onclick=()=>setZoom(1);
 
 const style=document.createElement('style');style.textContent=`.bh19-page{max-width:1050px;margin:auto}.bh19-actions{display:flex;align-items:center;gap:12px;margin:14px 0}.bh19-tree,.bh19-canvas{background:var(--card,#fff);border:1px solid #a1b9a166;border-radius:16px;padding:16px;overflow:auto}.bh19-branch{min-width:240px}.bh19-line{display:flex;align-items:center;gap:8px;padding:6px 0}.bh19-toggle{border:0;background:transparent;cursor:pointer;color:inherit;width:25px}.bh19-name{border:0;background:transparent;color:inherit;text-align:left;font:inherit;font-weight:600;cursor:pointer;flex:1}.bh19-name:hover{text-decoration:underline}.bh19-excerpt{margin:0 0 8px 34px;white-space:pre-wrap;color:#718578;font-size:.83rem;max-width:700px}.bh19-review{border-radius:12px;background:#dce9df30;padding:16px;margin:14px 0}.bh19-review button{margin-right:8px}#bh19FullDialog{width:95vw;max-width:none;height:90vh;max-height:none;border:0;border-radius:16px;padding:15px}#bh19FullDialog[open]{display:flex;flex-direction:column}.bh19-fullhead{display:flex;align-items:center;justify-content:space-between;padding:8px}.bh19-canvas{flex:1;overflow:auto;touch-action:pan-x pan-y}#bh19Body{min-height:240px}.bh19-zoomtools{display:flex;gap:8px;align-items:center;padding:6px 8px}.bh19-zoomcontent{width:max-content;min-width:100%;transform-origin:top left}`;document.head.append(style);
-const previousRender=render;render=function(...args){if(data.tab==='knowledge'){rememberRoute();document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='knowledge'));renderKnowledge();return}return previousRender(...args)};
+const previousRender=render;render=function(...args){if(data.tab==='knowledge'){window.BHRoute?.remember?.();document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='knowledge'));renderKnowledge();return}return previousRender(...args)};
 document.addEventListener('click',e=>{const b=e.target.closest('[data-k-add],[data-k-edit],[data-k-toggle],[data-k-reviewed]');if(!b)return;if(Date.now()<suppressEditUntil&&b.hasAttribute('data-k-edit')){e.preventDefault();e.stopImmediatePropagation();return}e.preventDefault();e.stopImmediatePropagation();if(b.hasAttribute('data-k-add'))edit(null,b.dataset.kAdd||null);else if(b.hasAttribute('data-k-edit'))edit(b.dataset.kEdit);else if(b.hasAttribute('data-k-toggle')){const n=find(b.dataset.kToggle);if(n){n.collapsed=!n.collapsed;save();render();if(fullscreen.open)fullscreen.querySelector('.bh19-zoomcontent').innerHTML=children(null).map(x=>row(x)).join('')}}else if(b.hasAttribute('data-k-reviewed')){const n=find(b.dataset.kReviewed);if(n){n.reviewedAt=new Date().toISOString();save();render()}}},true);
 // Long-press reorder within the same parent, compatible with touch and mouse.
 let drag=null,dragTimer=null,suppressEditUntil=0;
@@ -1459,79 +1460,301 @@ if(!localStorage.getItem('brainhome-v23-labor-rename')){
  localStorage.setItem('brainhome-v23-labor-rename','1');
 }
 // Restore the last page only after the knowledge module has registered its view.
-restoreRoute();
+window.BHRoute?.activate?.();
 render();
-window.addEventListener('pagehide',rememberRoute);
-window.addEventListener('beforeunload',rememberRoute);
-window.addEventListener('pageshow',()=>{restoreRoute();render()});
 
 
-/* BrainHome 2.4: additive improvements, preserving existing cloud payload. */
+
+
+/* BrainHome 2.5 — navigation, true list relocation, task event statistics and notes.
+   Kept in app.js (no extra application files). Existing Firebase and node IDs stay intact. */
 (() => {
- 'use strict';
- if(!Array.isArray(data.activityLog))data.activityLog=[];
- const oldSave24=save;
- let known24=new Map((data.nodes||[]).map(n=>[n.id,!!n.done]));
- save=function(...args){
-   if(!Array.isArray(data.activityLog))data.activityLog=[];
-   const stamp=new Date().toISOString();
-   const current=new Map((data.nodes||[]).map(n=>[n.id,!!n.done]));
-   for(const n of data.nodes||[]){
-     if(!known24.has(n.id) && (n.kind==='task'||n.kind==='gift'||n.checkable===true))data.activityLog.push({id:uid(),type:'created',sourceId:n.id,at:stamp});
-     if(known24.has(n.id)&&!known24.get(n.id)&&n.done && (n.kind==='task'||n.checkable===true))data.activityLog.push({id:uid(),type:'completed',sourceId:n.id,at:stamp});
-   }
-   known24=current;
-   return oldSave24(...args);
- };
- window.BH24Stats=()=>{
-   const since=Date.now()-30*86400000;
-   const entries=(data.activityLog||[]).filter(e=>Date.parse(e.at)>=since);
-   return {incoming:entries.filter(e=>e.type==='created').length,outgoing:entries.filter(e=>e.type==='completed').length};
- };
- // Rebuild the knowledge tab on every navigation; old startup code can overwrite onclick handlers.
- const previousTab24=setTab;
- setTab=function(tab,...args){
-   if(tab==='knowledge'){data.tab='knowledge';rememberRoute();render();return}
-   const result=previousTab24(tab,...args);
-   rememberRoute();return result;
- };
- const previousRender24=render;
- render=function(...args){
-   const result=previousRender24(...args);
-   if(data.tab==='tree'&&data.active){
-     const root=get(data.active);
-     const heading=document.querySelector('#app .topline');
-     if(root&&heading&&!heading.querySelector('.bh24-notes')){
-       const b=document.createElement('button');b.type='button';b.className='btn bh24-notes';b.textContent='📝 Notizen';b.onclick=()=>openEditor(root.id);heading.append(b);
-       if(root.notes){const box=document.createElement('details');box.className='bh24-notebox';box.innerHTML='<summary>📝 Notizen zu diesem Lebensbereich</summary><p></p>';box.querySelector('p').textContent=root.notes;heading.after(box)}
-     }
-   }
-   return result;
- };
- // Move only real task-tree categories; never silently relocate the independent
- // private panels (gifts, songs etc.) or overwrite a category with the same name.
- const MIG='brainhome-v24-relationship-migration';
- if(!localStorage.getItem(MIG)){
-   const relationship=data.nodes.find(n=>n.parent===null&&/^(Beziehung|Beziehungen)$/i.test(n.name));
-   if(relationship){
-     const names=['Geschenke','Aktivitäten','Lagerfeuerlieder','Bastelideen'];
-     let changed=false;
-     for(const name of names){
-       const candidates=data.nodes.filter(n=>n.name===name&&n.parent!==relationship.id&&(n.kind==='category'||n.kind==='list'));
-       for(const n of candidates){
-         if(n.parent===null || (get(n.parent)?.privateArea===true)){
-           if(!data.nodes.some(x=>x.parent===relationship.id&&x.name===name)){
-             n.parent=relationship.id;changed=true;
-           }
-         }
-       }
-     }
-     if(!data.nodes.some(n=>n.parent===relationship.id&&n.name==='Erziehung')){
-       data.nodes.push({id:uid(),name:'Erziehung',parent:relationship.id,kind:'category',done:false,collapsed:false,notes:''});changed=true;
-     }
-     if(changed)save();
-     localStorage.setItem(MIG,'1');
-   }
+'use strict';
+const ACTIVE_ROUTE = 'brainhome-v25-active-route';
+const STATS_OPEN = 'brainhome-v25-stats-visible';
+const STATS_COLOR = 'brainhome-v25-incoming-color';
+const rootRelationship = () => data.nodes.find(n => n.parent===null && /^Beziehung(en)?$/i.test(n.name));
+const oldPrivateRoot = () => privateRoot();
+const stamp = () => new Date().toISOString();
+const isTaskRecord = n => !!n && isTask(n);
+const visibleRoute = () => ({tab:data.tab, active:data.tab==='tree'?data.active:null});
+
+// One authoritative route key, restored before the initial 2.5 render. No changes
+// to this navigation record are transmitted to Firebase or saved in task history.
+function routeSave() {
+ const route=visibleRoute();
+ if (!['home','projects','tree','inbox','all','history','search','knowledge'].includes(route.tab)) return;
+ try {localStorage.setItem(ACTIVE_ROUTE,JSON.stringify(route));localStorage.setItem('brainhome-v13-last-view',JSON.stringify(route));}catch(e){console.warn('Navigation',e)}
+}
+function routeRestore() {
+ try {
+  const route=JSON.parse(localStorage.getItem(ACTIVE_ROUTE)||localStorage.getItem('brainhome-v13-last-view')||'null');
+  if(!route || !['home','projects','tree','inbox','all','history','search','knowledge'].includes(route.tab))return;
+  if(route.tab==='tree'){
+   const root=get(route.active);
+   if(!root || root.parent!==null)return;
+   data.active=root.id;
+  }
+  data.tab=route.tab;
+ } catch(e){console.warn('Navigation wiederherstellen',e)}
+}
+routeRestore();
+
+// Split the *real* gift and song panels by owner. No duplicate lists or cloned
+// records; all editing, checkboxes, history and undo use the original arrays.
+function moveActualPanels() {
+ if(data.tab!=='tree')return;
+ const root=get(data.active),rel=rootRelationship(),priv=oldPrivateRoot();
+ if(!root)return;
+ const target=document.querySelector('#app');
+ if(rel && root.id===rel.id){
+   const div=document.createElement('div');div.innerHTML=specialsHTML();
+   const panels=div.querySelectorAll('details[data-panel="gifts"],details[data-panel="songs"]');
+   if(!panels.length)return;
+   const section=document.createElement('section');section.className='bh25-relationship-lists';
+   section.innerHTML='<h3>Listen zu Beziehungen</h3>';
+   const wrap=document.createElement('div');wrap.className='specials';
+   for(const panel of panels)wrap.append(panel);
+   section.append(wrap);target.append(section);
  }
+ if(priv && root.id===priv.id){
+   target.querySelectorAll('details[data-panel="gifts"],details[data-panel="songs"]').forEach(panel=>panel.remove());
+ }
+}
+function ensureCategory(root,name) {
+ let existing=data.nodes.find(n=>n.parent===root.id&&n.name===name&&isCategory(n));
+ if(existing)return existing;
+ existing={id:uid(),parent:root.id,name,kind:'category',checkable:false,done:false,priority:'',due:'',notes:'',collapsed:false,userCreated:true,createdAt:stamp()};
+ data.nodes.push(existing);return existing;
+}
+// Idempotent migration. Preserve every existing subnode, note and task ID.
+function migrateRelationshipLists() {
+ const rel=rootRelationship();if(!rel)return;
+ const before=JSON.stringify(data.nodes);
+ const priv=oldPrivateRoot();
+ const names=['Aktivitäten','Bastelideen','Erziehung','Geschenke','Lagerfeuerlieder'];
+ for(const name of names){
+  let candidates=data.nodes.filter(n=>n.name===name && isCategory(n) && (n.parent===rel.id || n.parent===priv?.id || n.privateSection===true));
+  let target=candidates.find(n=>n.parent===rel.id) || candidates.find(n=>!n.privateSection) || candidates[0];
+  if(!target)target=ensureCategory(rel,name);
+  target.parent=rel.id;
+  // Previous v2.4 placeholders must not keep the wrong "Privat" notice.
+  if(target.notes==='Bestehende Speziallisten bleiben weiterhin unter Privat erreichbar.')target.notes='';
+  delete target.privateSection;
+  if(name==='Geschenke'||name==='Lagerfeuerlieder')target.collapsed=true;
+  for(const duplicate of candidates){
+   if(duplicate.id===target.id)continue;
+   // Never throw away a meaningful user entry merely because names match.
+   for(const child of data.nodes.filter(n=>n.parent===duplicate.id))child.parent=target.id;
+   if(duplicate.notes?.trim() && duplicate.notes!=='Bestehende Speziallisten bleiben weiterhin unter Privat erreichbar.') {
+     target.notes=[target.notes,duplicate.notes].filter(Boolean).join('\n\n');
+   }
+   data.nodes=data.nodes.filter(n=>n.id!==duplicate.id);
+  }
+ }
+ const giftCategory=data.nodes.find(n=>n.parent===rel.id&&n.name==='Geschenke'&&isCategory(n));
+ if(giftCategory)for(const gift of data.nodes.filter(isGift))gift.parent=giftCategory.id;
+ if(before!==JSON.stringify(data.nodes))save();
+}
+migrateRelationshipLists();
+// Gift and song panels have been moved to Relationships. Hide only their
+// empty tree placeholders; any user-created task children keep them visible.
+const oldSpecialNode = isSpecialTreeNode;
+isSpecialTreeNode=function(n){
+ const rel=rootRelationship();
+ if(rel && n?.parent===rel.id && isCategory(n) && ['Geschenke','Lagerfeuerlieder'].includes(n.name)){
+  const meaningful=!!n.notes?.trim() || data.nodes.some(x=>x.parent===n.id && !isGift(x));
+  if(!meaningful)return true;
+ }
+ return oldSpecialNode(n);
+};
+
+// Task timeline: true creation and completion timestamps, not total inventory.
+if(!Array.isArray(data.taskEvents))data.taskEvents=[];
+let known=new Map((data.nodes||[]).map(n=>[n.id,{task:isTaskRecord(n),done:!!n.done}]));
+const originalSave=save;
+save=function(...args){
+ if(!Array.isArray(data.taskEvents))data.taskEvents=[];
+ // New gifts created through the legacy editor also belong to Relationships.
+ const rel=rootRelationship();
+ const giftBucket=rel&&data.nodes.find(n=>n.parent===rel.id&&n.name==='Geschenke'&&isCategory(n));
+ if(giftBucket)for(const n of data.nodes)if(isGift(n)&&n.parent!==giftBucket.id)n.parent=giftBucket.id;
+ const updated=new Map();
+ let change=false;
+ for(const n of data.nodes){
+  const task=isTaskRecord(n),prior=known.get(n.id),done=!!n.done;
+  if(task&&(!prior||!prior.task)){
+    // Prior unknown historical tasks stay undated; conversions and new tasks
+    // get a real creation date at the moment we observe the transition.
+    if(!n.createdAt)n.createdAt=stamp();
+    data.taskEvents.push({id:uid(),type:'created',taskId:n.id,name:n.name,at:n.createdAt,source:n.parent==='inbox'?'inbox':'tree'});change=true;
+  }
+  if(task && prior && prior.task && !prior.done && done){
+    data.taskEvents.push({id:uid(),type:'completed',taskId:n.id,name:n.name,at:n.completedAt||stamp()});change=true;
+  }
+  if(task && (!prior || !prior.task) && done){
+    data.taskEvents.push({id:uid(),type:'completed',taskId:n.id,name:n.name,at:n.completedAt||stamp()});change=true;
+  }
+  updated.set(n.id,{task,done});
+ }
+ known=updated;
+ return originalSave(...args);
+};
+function resetKnown(){known=new Map((data.nodes||[]).map(n=>[n.id,{task:isTaskRecord(n),done:!!n.done}]));}
+// Ensure undo/redo and cloud replacement do not generate fictional events.
+const prevApply=window.BH10?.applyData;
+if(prevApply){window.BH10.applyData=function(payload){const route=visibleRoute();const result=prevApply(payload);resetKnown();
+ if(route.tab==='tree'&&get(route.active)) {data.tab='tree';data.active=route.active;}
+ else if(['home','projects','inbox','all','history','search','knowledge'].includes(route.tab))data.tab=route.tab;
+ routeSave();render();return result;};}
+
+// Completion without an assignment: discard Inbox capture. A capture explicitly
+// converted into a task is genuinely completed and appears in timeline+history.
+window.addEventListener('click',event=>{
+ const control=event.target.closest?.('[data-action="bh12-inbox-discard"]');
+ if(!control)return;
+ const n=get(control.dataset.id);if(!n||n.parent!=='inbox')return;
+ event.preventDefault();event.stopImmediatePropagation();
+ if(isTaskRecord(n)){
+   setDone(n.id,true); // Existing completion path and new timeline are preserved.
+   notice('Aufgabe erledigt und in der Statistik erfasst');
+ }else{
+   if(descendants(n.id).length){notice('Bitte zuerst die Unterpunkte einsortieren.');return;}
+   data.nodes=data.nodes.filter(item=>item.id!==n.id);save();render();notice('Inbox-Eintrag entfernt');
+ }
+},true);
+// Legacy Inbox and overview draw their own markup; keep checkbox behavior
+// dynamic so tasks get a proper accessible description.
+function adjustInbox() {
+ if(data.tab!=='inbox')return;
+ const host=document.getElementById('app');
+ for(const checkbox of host.querySelectorAll('[data-action="bh12-inbox-discard"]')){
+  const item=get(checkbox.dataset.id);if(!item)continue;
+  if(item.done){checkbox.closest('.bh12-inbox-item')?.remove();continue;}
+  const task=isTaskRecord(item);
+  checkbox.title=task?'Als Aufgabe erledigen und für Statistik zählen':'Notiz aus Inbox entfernen';
+  checkbox.setAttribute('aria-label',checkbox.title);
+  if(task){const row=checkbox.closest('.bh12-inbox-item');const title=row?.querySelector('strong');if(title&&!row.querySelector('.bh25-task-chip'))title.insertAdjacentHTML('afterend',' <small class="bh25-task-chip">Aufgabe</small>');}
+ }
+}
+
+// Notes live on the original root node, synced by the existing cloud export.
+const dlg=document.createElement('dialog');dlg.className='bh25-notes-dialog';dlg.innerHTML=`<form class="modal" id="bh25NotesForm"><h2 id="bh25NotesHeading">Bereichsnotizen</h2><label class="field">Notizen<textarea id="bh25NotesBody" rows="12" placeholder="Gedanken, Ideen, Zusammenfassungen …"></textarea></label><footer><button type="button" id="bh25NotesCancel" class="btn">Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
+document.body.append(dlg);
+let notesRoot=null;
+dlg.querySelector('#bh25NotesCancel').onclick=()=>dlg.close();
+dlg.querySelector('form').addEventListener('submit',e=>{e.preventDefault();const root=get(notesRoot);if(root){root.notes=dlg.querySelector('#bh25NotesBody').value;save();render();notice('Bereichsnotizen gespeichert')}dlg.close()});
+function addNotesButton() {
+ if(data.tab!=='tree')return;
+ const root=get(data.active),bar=document.querySelector('#app .topline');if(!root||!bar)return;
+ if(bar.querySelector('[data-bh25-notes]'))return;
+ const button=document.createElement('button');button.type='button';button.className='btn bh25-notes-button';button.dataset.bh25Notes=root.id;
+ button.textContent='📝 Notizen'+(root.notes?.trim()?' ✓':'');button.title='Notizen für '+root.name;bar.append(button);
+}
+document.addEventListener('click',e=>{const b=e.target.closest?.('[data-bh25-notes]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();const root=get(b.dataset.bh25Notes);if(!root)return;
+ notesRoot=root.id;dlg.querySelector('#bh25NotesHeading').textContent='📝 '+root.name+' · Notizen';dlg.querySelector('#bh25NotesBody').value=root.notes||'';dlg.showModal();},true);
+// Gift and songs quick links must now navigate to their actual visible owner.
+window.addEventListener('click',e=>{
+ const b=e.target.closest?.('[data-action]');if(!b)return;
+ const action=b.dataset.action;
+ if(action==='v1-gift-open' || (action==='v1-panel'&&['gifts','songs'].includes(b.dataset.id))){
+  const rel=rootRelationship();if(!rel)return;
+  e.preventDefault();e.stopImmediatePropagation();
+  const panel=action==='v1-gift-open'?'gifts':b.dataset.id;
+  panels[panel]=true;localStorage.setItem(PANEL_KEY,JSON.stringify(panels));openProject(rel.id);
+  requestAnimationFrame(()=>document.querySelector(`[data-panel="${panel}"]`)?.scrollIntoView({block:'start',behavior:'smooth'}));
+ }
+},true);
+
+// The statistical report is hidden by default. It is shown only inside Erledigt
+// and includes real time-based incoming/completed counts.
+let statsVisible=localStorage.getItem(STATS_OPEN)==='1';
+let statsPeriod='week',statsOffset=0;
+let incomingColor=localStorage.getItem(STATS_COLOR)||'#b37847';
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function statsSlots(){
+ const today=new Date();today.setHours(12,0,0,0);let slots=[],title='';
+ if(statsPeriod==='week'){
+  const d=new Date(today);d.setDate(today.getDate()-((today.getDay()+6)%7)+7*statsOffset);
+  for(let i=0;i<7;i++){const x=new Date(d);x.setDate(d.getDate()+i);slots.push({key:dayKey(x),label:x.toLocaleDateString('de-DE',{weekday:'short'})});}
+  title=slots[0].key+' – '+slots[6].key;
+ }else if(statsPeriod==='month'){
+  const first=new Date(today.getFullYear(),today.getMonth()+statsOffset,1,12),days=new Date(first.getFullYear(),first.getMonth()+1,0).getDate();
+  for(let i=1;i<=days;i++){const d=new Date(first.getFullYear(),first.getMonth(),i,12);slots.push({key:dayKey(d),label:String(i)})}
+  title=first.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+ }else{
+  const year=today.getFullYear()+statsOffset;
+  for(let i=0;i<12;i++){const d=new Date(year,i,1,12);slots.push({key:dayKey(d).slice(0,7),label:d.toLocaleDateString('de-DE',{month:'short'})});}
+  title=String(year);
+ }
+ const totals=new Map(slots.map(s=>[s.key,{incoming:0,outgoing:0}]));
+ const loggedDone=new Set();
+ for(const e of data.taskEvents||[]){
+  if(!e?.at||!['created','completed'].includes(e.type))continue;
+  if(e.type==='completed')loggedDone.add(e.taskId);
+  const date=new Date(e.at);if(Number.isNaN(date.getTime()))continue;
+  const key=statsPeriod==='year'?dayKey(date).slice(0,7):dayKey(date),slot=totals.get(key);
+  if(slot)slot[e.type==='created'?'incoming':'outgoing']++;
+ }
+ // Legacy completedAt is useful real history: count it only if no completion
+ // event was ever recorded for that task. Avoid fabricated creation dates.
+ for(const n of data.nodes){
+  if(!isTaskRecord(n)||!n.done||!n.completedAt||loggedDone.has(n.id))continue;
+  const date=new Date(n.completedAt);if(Number.isNaN(date.getTime()))continue;
+  const slot=totals.get(statsPeriod==='year'?dayKey(date).slice(0,7):dayKey(date));if(slot)slot.outgoing++;
+ }
+ const all=slots.map(s=>({...s,...totals.get(s.key)}));
+ return {all,title,incoming:all.reduce((a,b)=>a+b.incoming,0),outgoing:all.reduce((a,b)=>a+b.outgoing,0)};
+}
+function reportHTML(){
+ const {all,title,incoming,outgoing}=statsSlots(),max=Math.max(1,...all.flatMap(x=>[x.incoming,x.outgoing]));
+ const untracked=data.nodes.filter(n=>isTaskRecord(n)&&!n.createdAt&&!(data.taskEvents||[]).some(e=>e.taskId===n.id&&e.type==='created')).length;
+ const bars=all.map(s=>`<div class="bh25-stat-slot" title="${esc(s.key)}: ${s.incoming} neu, ${s.outgoing} erledigt"><span class="bh25-stat-pair"><i style="height:${Math.max(1,Math.round(s.incoming/max*75))}px;background:var(--bh25-in)"></i><i style="height:${Math.max(1,Math.round(s.outgoing/max*75))}px;background:#4b986c"></i></span><small>${esc(s.label)}</small></div>`).join('');
+ return `<section class="bh25-stats" style="--bh25-in:${esc(incomingColor)}"><div class="bh25-stats-top"><strong>📥 Eingang &amp; Ausgang</strong><label>Eingangsfarbe <input type="color" data-bh25-color value="${esc(incomingColor)}"></label></div><div class="bh25-stats-switch">${[['week','Woche'],['month','Monat'],['year','Jahr']].map(([id,label])=>`<button class="mini" data-bh25-period="${id}" aria-pressed="${statsPeriod===id}">${label}</button>`).join('')}</div><div class="bh25-stats-nav"><button class="mini" data-bh25-shift="-1" aria-label="Vorheriger Zeitraum">‹</button><span>${esc(title)}</span><button class="mini" data-bh25-shift="1" aria-label="Nächster Zeitraum">›</button></div><div class="bh25-stat-totals"><span style="color:var(--bh25-in)">＋ ${incoming} neue Aufgaben</span><span style="color:#397c56">✓ ${outgoing} erledigt</span><strong>Saldo ${incoming-outgoing>0?'+':''}${incoming-outgoing}</strong></div><div class="bh25-stat-chart">${bars}</div><p class="hint">Gezählt werden neu angelegte oder zu Aufgaben umgewandelte Einträge und ihre Abschlüsse. Reine Inbox-Notizen zählen nicht. ${untracked?'Bei '+untracked+' älteren Aufgaben fehlt das ursprüngliche Anlagedatum; deren Eingang kann rückwirkend nicht genau gezählt werden.':''} Wiederholtes Erledigen wird als erneuter Abschluss erfasst.</p></section>`;
+}
+// Intercept the history content at the final rendering stage: avoid ever showing
+// the previous always-visible graph or the incorrect inventory counter.
+function adjustHistory(){
+ if(data.tab!=='history')return;
+ const history=document.querySelector('#app .bh13-history');if(!history)return;
+ history.querySelector('.bh13-chart')?.remove();history.querySelector('.bh24-flow')?.remove();
+ const headline=history.querySelector('h2');if(!headline)return;
+ const btn=document.createElement('button');btn.className='btn bh25-stats-toggle';btn.type='button';btn.dataset.bh25StatsToggle='';btn.textContent=statsVisible?'📊 Statistik ausblenden':'📊 Statistik anzeigen';
+ headline.after(btn);
+ if(statsVisible)btn.insertAdjacentHTML('afterend',reportHTML());
+ // Historical completion events for reopened tasks remain visible.
+ const done=new Set(data.nodes.filter(n=>isTaskRecord(n)&&n.done).map(n=>n.id));
+ const old=(data.taskEvents||[]).filter(e=>e.type==='completed'&&!done.has(e.taskId));
+ if(old.length){const section=document.createElement('section');section.className='bh25-past-completions';section.innerHTML='<h3>Frühere Abschlüsse (erneut geöffnet)</h3>'+old.slice().reverse().map(e=>`<div class="task"><span class="history-check">✓</span><div class="detail"><strong>${esc(e.name)}</strong><small>${esc(e.at.slice(0,10))}</small></div></div>`).join('');history.append(section)}
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest?.('[data-bh25-stats-toggle],[data-bh25-period],[data-bh25-shift]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(b.hasAttribute('data-bh25-stats-toggle')){statsVisible=!statsVisible;localStorage.setItem(STATS_OPEN,statsVisible?'1':'0')}
+ if(b.hasAttribute('data-bh25-period')){statsPeriod=b.dataset.bh25Period;statsOffset=0}
+ if(b.hasAttribute('data-bh25-shift'))statsOffset+=Number(b.dataset.bh25Shift);
  render();
+},true);
+document.addEventListener('input',e=>{if(e.target.hasAttribute('data-bh25-color')){
+ incomingColor=e.target.value;localStorage.setItem(STATS_COLOR,incomingColor);e.target.closest('.bh25-stats')?.style.setProperty('--bh25-in',incomingColor);
+ e.target.closest('.bh25-stats')?.querySelectorAll('[data-bh25-color]').forEach(el=>el.value=incomingColor);
+}},true);
+
+// Keep the correct page even after legacy render wrappers and cloud replacement.
+const beforeRender=render;
+render=function(...args){
+ const result=beforeRender(...args);
+ adjustInbox();addNotesButton();moveActualPanels();adjustHistory();
+ resetKnown();
+ if(!document.querySelector('#bh19FullDialog')?.open)routeSave();
+ return result;
+};
+const priorSetTab=setTab;setTab=function(t){const result=priorSetTab(t);routeSave();return result;};
+const priorOpen=openProject;openProject=function(id){const result=priorOpen(id);routeSave();return result;};
+// Extra restoration before the first useful render and on pageshow (bfcache).
+routeRestore();render();
+window.addEventListener('pageshow',e=>{if(e.persisted){routeRestore();render()}});
+window.BH25={getRoute:visibleRoute,statsSlots,rerender:()=>render()};
+const style=document.createElement('style');style.textContent=`.bh25-relationship-lists{margin-top:18px}.bh25-relationship-lists h3{margin:0 0 10px}.bh25-notes-button{margin:8px 0}.bh25-task-chip{display:inline-block;color:#397c56;font-size:.72rem;border:1px solid #b8d0bc;border-radius:10px;padding:1px 6px}.bh25-stats-toggle{margin:8px 0 16px}.bh25-stats{background:var(--card,#fff);border:1px solid #d9e4db;border-radius:15px;padding:14px;margin-bottom:18px}.bh25-stats-top,.bh25-stats-nav,.bh25-stat-totals{display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap}.bh25-stats-top label{font-size:.8rem}.bh25-stats-switch{display:flex;gap:8px;margin:12px 0}.bh25-stats-nav{justify-content:center}.bh25-stat-totals{padding:14px 0;font-weight:600}.bh25-stat-chart{overflow-x:auto;display:flex;align-items:end;min-height:125px;gap:3px;padding:12px 0 0;border-bottom:1px solid #ddd}.bh25-stat-slot{min-width:23px;flex:1;text-align:center}.bh25-stat-pair{display:flex;align-items:end;justify-content:center;gap:2px;height:79px}.bh25-stat-pair i{display:block;width:9px;border-radius:3px 3px 0 0}.bh25-stat-slot small{font-size:.64rem}.bh25-notes-dialog{max-width:min(94vw,640px)}.bh25-notes-dialog textarea{min-height:220px;width:100%}.bh25-past-completions{margin-top:22px}`;document.head.append(style);
 })();
