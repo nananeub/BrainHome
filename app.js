@@ -685,8 +685,7 @@ document.addEventListener('click',event=>{if(Date.now()<suppressClicksUntil&&eve
 
 // Load last UI location after all legacy startup scripts have finished.
 window.BH13={enabled:true};
-restoreRoute();
-render();
+// Final route restoration runs after all modules, including knowledge, initialize.
 })();
 
 
@@ -1421,7 +1420,7 @@ fullscreen.querySelector('#bh19ZoomIn').onclick=()=>setZoom(zoom+.15);
 fullscreen.querySelector('#bh19ZoomReset').onclick=()=>setZoom(1);
 
 const style=document.createElement('style');style.textContent=`.bh19-page{max-width:1050px;margin:auto}.bh19-actions{display:flex;align-items:center;gap:12px;margin:14px 0}.bh19-tree,.bh19-canvas{background:var(--card,#fff);border:1px solid #a1b9a166;border-radius:16px;padding:16px;overflow:auto}.bh19-branch{min-width:240px}.bh19-line{display:flex;align-items:center;gap:8px;padding:6px 0}.bh19-toggle{border:0;background:transparent;cursor:pointer;color:inherit;width:25px}.bh19-name{border:0;background:transparent;color:inherit;text-align:left;font:inherit;font-weight:600;cursor:pointer;flex:1}.bh19-name:hover{text-decoration:underline}.bh19-excerpt{margin:0 0 8px 34px;white-space:pre-wrap;color:#718578;font-size:.83rem;max-width:700px}.bh19-review{border-radius:12px;background:#dce9df30;padding:16px;margin:14px 0}.bh19-review button{margin-right:8px}#bh19FullDialog{width:95vw;max-width:none;height:90vh;max-height:none;border:0;border-radius:16px;padding:15px}#bh19FullDialog[open]{display:flex;flex-direction:column}.bh19-fullhead{display:flex;align-items:center;justify-content:space-between;padding:8px}.bh19-canvas{flex:1;overflow:auto;touch-action:pan-x pan-y}#bh19Body{min-height:240px}.bh19-zoomtools{display:flex;gap:8px;align-items:center;padding:6px 8px}.bh19-zoomcontent{width:max-content;min-width:100%;transform-origin:top left}`;document.head.append(style);
-const previousRender=render;render=function(...args){if(data.tab==='knowledge'){document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='knowledge'));renderKnowledge();return}return previousRender(...args)};
+const previousRender=render;render=function(...args){if(data.tab==='knowledge'){rememberRoute();document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='knowledge'));renderKnowledge();return}return previousRender(...args)};
 document.addEventListener('click',e=>{const b=e.target.closest('[data-k-add],[data-k-edit],[data-k-toggle],[data-k-reviewed]');if(!b)return;if(Date.now()<suppressEditUntil&&b.hasAttribute('data-k-edit')){e.preventDefault();e.stopImmediatePropagation();return}e.preventDefault();e.stopImmediatePropagation();if(b.hasAttribute('data-k-add'))edit(null,b.dataset.kAdd||null);else if(b.hasAttribute('data-k-edit'))edit(b.dataset.kEdit);else if(b.hasAttribute('data-k-toggle')){const n=find(b.dataset.kToggle);if(n){n.collapsed=!n.collapsed;save();render();if(fullscreen.open)fullscreen.querySelector('.bh19-zoomcontent').innerHTML=children(null).map(x=>row(x)).join('')}}else if(b.hasAttribute('data-k-reviewed')){const n=find(b.dataset.kReviewed);if(n){n.reviewedAt=new Date().toISOString();save();render()}}},true);
 // Long-press reorder within the same parent, compatible with touch and mouse.
 let drag=null,dragTimer=null,suppressEditUntil=0;
@@ -1439,3 +1438,7 @@ if(!nodes().length){for(const name of initialNames)nodes().push({id:newid(),pare
 // Existing trees can have custom order; default Uni first for the initial migration only.
 if(!localStorage.getItem('brainhome-v19-order-migrated')){const roots=children(null),uni=roots.find(n=>n.name==='Uni');if(uni){const reordered=[uni,...roots.filter(n=>n.id!==uni.id)];reordered.forEach((n,i)=>n.order=i);save()}localStorage.setItem('brainhome-v19-order-migrated','1')}
 })();
+// Restore the last page only after the knowledge module has registered its view.
+restoreRoute();
+render();
+
