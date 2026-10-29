@@ -94,16 +94,19 @@ function v1Home(){
  // Only explicitly selected, unfinished gifts appear here; birthdays outside 28 days are allowed.
  const birthdays=allNodesOfKind('gift').filter(n=>n.giftPinned===true&&!n.done&&normalizePriority(n.priority)!=='sofort').sort((a,b)=>(nextBirthdayDays(a)??999)-(nextBirthdayDays(b)??999));
  const routines=(data.routines||[]).filter(r=>routineDue(r)&&!urgentRoutines.includes(r));
- const cell=(name,body)=>body?`<section class="v1-dash-card"><h3>${name}</h3>${body}</section>`:'';
+ const collapsedKey='brainhome-v23-home-collapsed';
+ let collapsed={sofort:true,gifts:true};
+ try{collapsed={...collapsed,...JSON.parse(localStorage.getItem(collapsedKey)||'{}')}}catch{}
+ const cell=(name,body,key='')=>!body?'':key?`<details class="v1-dash-card bh23-fold" data-bh23-fold="${key}" ${collapsed[key]?'':'open'}><summary>${name}<span class="bh23-fold-count">${key==='sofort'?urgent.length+urgentRoutines.length+urgentGifts.length:birthdays.length}</span></summary><div class="bh23-fold-body">${body}</div></details>`:`<section class="v1-dash-card"><h3>${name}</h3>${body}</section>`;
  const taskLink=(n,extra='')=>`<button class="v1-dash-row" data-action="v1-node" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${v1Html(rootName(n))}${extra?' · '+v1Html(extra):''}</small></span><span aria-hidden="true">↗</span></button>`;
  const giftRow=n=>`<button class="v1-dash-row" data-action="v1-gift-open" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${n.birthday?'Geburtstag in '+nextBirthdayDays(n)+' Tagen':'Geschenk noch offen'}</small></span><span aria-hidden="true">↗</span></button>`;
  const routineRow=r=>`<div class="v1-dash-row"><span>${v1Html(r.name)}<small>Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}</small></span><button class="mini" data-action="routine-done" data-id="${v1Html(r.id)}">✓ Gemacht</button></div>`;
  const routineBody=routines.length?routineRow(routines[0])+(routines.length>1?`<details class="v11-more-routines"><summary>${routines.length-1} weitere Routine${routines.length===2?'':'n'} anzeigen</summary>${routines.slice(1).map(routineRow).join('')}</details>`:''):'';
  const urgentBody=[...urgent.map(n=>taskLink(n)),...urgentRoutines.map(routineRow),...urgentGifts.map(giftRow)].slice(0,8).join('');
  const cards=[
-   cell('🔴 Sofort',urgentBody),
+   cell('🔴 Sofort',urgentBody,'sofort'),
    cell('📅 Anstehende Termine',due.map(n=>taskLink(n,v1Date(n.due))).join('')),
-   cell('🎁 Geschenke',birthdays.map(giftRow).join('')),
+   cell('🎁 Geschenke',birthdays.map(giftRow).join(''),'gifts'),
    cell('🌱 Routinen',routineBody)
  ].filter(Boolean).join('');
  return `<div class="v1-home-title"><h2>Startseite</h2></div>
@@ -111,6 +114,14 @@ function v1Home(){
  ${cards?`<div class="v1-dash-grid">${cards}</div>`:''}
  <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done).length} offene Aufgaben</small></button>`).join('')}</div></div>`;
 }
+// Keep the two noisy home sections collapsed across refreshes and devices on this browser.
+document.addEventListener('toggle',event=>{
+ const details=event.target.closest?.('[data-bh23-fold]');if(!details)return;
+ const key=details.dataset.bh23Fold;let state={};
+ try{state=JSON.parse(localStorage.getItem('brainhome-v23-home-collapsed')||'{}')}catch{}
+ state[key]=!details.open;
+ localStorage.setItem('brainhome-v23-home-collapsed',JSON.stringify(state));
+},true);
 function v1SearchHTML(){return `<div class="v1-title-row"><h2>⌕ Alles durchsuchen</h2><button class="btn" data-action="v1-home">← Startseite</button></div><label class="v1-search-label" for="v1SearchInput">Suche in Aufgaben, Notizen, Kategorien, Routinen und Listen</label><input id="v1SearchInput" type="search" value="${v1Html(v1ActiveSearch)}" autocomplete="off" placeholder="Zum Beispiel Stadtführung, Leipzig, Finanzen …"><div id="v1SearchResults">${v1SearchResults()}</div>`}
 function v1SearchResults(){const q=v1ActiveSearch.trim().toLocaleLowerCase('de');if(!q)return'<p class="hint">Tippe etwas ein, um deine Einträge zu finden.</p>';
  const entries=[];for(const n of data.nodes){const content=[n.name,n.notes,n.due,path(n)].join(' ').toLocaleLowerCase('de');if(content.includes(q))entries.push({label:n.name,detail:(n.parent==='inbox'?'Inbox':path(n)),action:'v1-node',id:n.id})}
@@ -254,7 +265,8 @@ function bh11HasVisibleDescendant(node,visited=new Set()){
 function bh11Visible(n){return !isSpecialTreeNode(n)&&(showDone||!isTask(n)||!n.done||bh11HasVisibleDescendant(n))}
 orderedTreeKids=function(id){
  const nodes=(bh11ChildrenIndex.get(id)||[]).filter(bh11Visible);
- return nodes.sort((a,b)=>Number(isTask(a)&&a.done)-Number(isTask(b)&&b.done));
+ const rank=n=>({sofort:0,wichtig:1,spaeter:2,warten:3,'':4})[normalizePriority(n.priority)]??4;
+ return nodes.sort((a,b)=>Number(isTask(a)&&a.done)-Number(isTask(b)&&b.done)||(isTask(a)&&isTask(b)?rank(a)-rank(b):0));
 };
 const e=s=>esc(s);
 function bh11Row(n){
@@ -1438,6 +1450,12 @@ if(!nodes().length){for(const name of initialNames)nodes().push({id:newid(),pare
 // Existing trees can have custom order; default Uni first for the initial migration only.
 if(!localStorage.getItem('brainhome-v19-order-migrated')){const roots=children(null),uni=roots.find(n=>n.name==='Uni');if(uni){const reordered=[uni,...roots.filter(n=>n.id!==uni.id)];reordered.forEach((n,i)=>n.order=i);save()}localStorage.setItem('brainhome-v19-order-migrated','1')}
 })();
+// Non-destructive one-time tidy-up: rename only the top-level Promotion area.
+if(!localStorage.getItem('brainhome-v23-labor-rename')){
+ const old=data.nodes.find(n=>n.parent===null&&n.name==='Promotion');
+ if(old&&!data.nodes.some(n=>n.parent===null&&n.name==='Labor')){old.name='Labor';save()}
+ localStorage.setItem('brainhome-v23-labor-rename','1');
+}
 // Restore the last page only after the knowledge module has registered its view.
 restoreRoute();
 render();
