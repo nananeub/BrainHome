@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','activityLog'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -95,23 +95,25 @@ function v1Home(){
  const birthdays=allNodesOfKind('gift').filter(n=>n.giftPinned===true&&!n.done&&normalizePriority(n.priority)!=='sofort').sort((a,b)=>(nextBirthdayDays(a)??999)-(nextBirthdayDays(b)??999));
  const routines=(data.routines||[]).filter(r=>routineDue(r)&&!urgentRoutines.includes(r));
  const collapsedKey='brainhome-v23-home-collapsed';
- let collapsed={sofort:true,gifts:true};
+ let collapsed={sofort:true,gifts:true,routines:true};
  try{collapsed={...collapsed,...JSON.parse(localStorage.getItem(collapsedKey)||'{}')}}catch{}
- const cell=(name,body,key='')=>!body?'':key?`<details class="v1-dash-card bh23-fold" data-bh23-fold="${key}" ${collapsed[key]?'':'open'}><summary>${name}<span class="bh23-fold-count">${key==='sofort'?urgent.length+urgentRoutines.length+urgentGifts.length:birthdays.length}</span></summary><div class="bh23-fold-body">${body}</div></details>`:`<section class="v1-dash-card"><h3>${name}</h3>${body}</section>`;
+ const cell=(name,body,key='')=>!body?'':key?`<details class="v1-dash-card bh23-fold" data-bh23-fold="${key}" ${collapsed[key]?'':'open'}><summary>${name}<span class="bh23-fold-count">${key==='sofort'?urgent.length+urgentRoutines.length+urgentGifts.length:key==='routines'?routines.length:birthdays.length}</span></summary><div class="bh23-fold-body">${body}</div></details>`:`<section class="v1-dash-card"><h3>${name}</h3>${body}</section>`;
  const taskLink=(n,extra='')=>`<button class="v1-dash-row" data-action="v1-node" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${v1Html(rootName(n))}${extra?' · '+v1Html(extra):''}</small></span><span aria-hidden="true">↗</span></button>`;
  const giftRow=n=>`<button class="v1-dash-row" data-action="v1-gift-open" data-id="${v1Html(n.id)}"><span>${v1Html(n.name)}<small>${n.birthday?'Geburtstag in '+nextBirthdayDays(n)+' Tagen':'Geschenk noch offen'}</small></span><span aria-hidden="true">↗</span></button>`;
  const routineRow=r=>`<div class="v1-dash-row"><span>${v1Html(r.name)}<small>Alle ${Number(r.every)||1} ${r.unit==='weeks'?'Woche(n)':r.unit==='months'?'Monat(e)':'Tag(e)'}</small></span><button class="mini" data-action="routine-done" data-id="${v1Html(r.id)}">✓ Gemacht</button></div>`;
- const routineBody=routines.length?routineRow(routines[0])+(routines.length>1?`<details class="v11-more-routines"><summary>${routines.length-1} weitere Routine${routines.length===2?'':'n'} anzeigen</summary>${routines.slice(1).map(routineRow).join('')}</details>`:''):'';
+ const routineBody=routines.map(routineRow).join('');
  const urgentBody=[...urgent.map(n=>taskLink(n)),...urgentRoutines.map(routineRow),...urgentGifts.map(giftRow)].slice(0,8).join('');
+ const stats=window.BH24Stats?.()||{incoming:0,outgoing:0};
+ const statsCard=`<section class="v1-dash-card bh24-stats"><h3>📊 Eingang & Ausgang · 30 Tage</h3><div class="bh24-statrow"><span>＋ Neu <strong>${stats.incoming}</strong></span><span>✓ Erledigt <strong>${stats.outgoing}</strong></span></div><small>Erfasst ab diesem Update · frühere Eingänge nicht rekonstruierbar</small></section>`;
  const cards=[
    cell('🔴 Sofort',urgentBody,'sofort'),
    cell('📅 Anstehende Termine',due.map(n=>taskLink(n,v1Date(n.due))).join('')),
    cell('🎁 Geschenke',birthdays.map(giftRow).join(''),'gifts'),
-   cell('🌱 Routinen',routineBody)
+   cell('🌱 Routinen',routineBody,'routines')
  ].filter(Boolean).join('');
  return `<div class="v1-home-title"><h2>Startseite</h2></div>
  <form class="v1-capture" id="v1CaptureForm"><label for="v1CaptureInput">Inbox</label><div class="v1-capture-row"><input id="v1CaptureInput" required maxlength="250" placeholder="Gedanken oder Eintrag festhalten" autocomplete="off"><button type="submit" class="btn primary">＋ Merken</button></div></form>
- ${cards?`<div class="v1-dash-grid">${cards}</div>`:''}
+ ${cards?`<div class="v1-dash-grid">${cards}${statsCard}</div>`:`<div class="v1-dash-grid">${statsCard}</div>`}
  <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done).length} offene Aufgaben</small></button>`).join('')}</div></div>`;
 }
 // Keep the two noisy home sections collapsed across refreshes and devices on this browser.
@@ -1413,7 +1415,7 @@ const tab=document.createElement('button');tab.dataset.tab='knowledge';tab.textC
 const projectTab=nav.querySelector('[data-tab="projects"]');
 if(projectTab)projectTab.replaceWith(tab);else nav.append(tab);
 // The original navigation binds onclick before this extension loads.
-tab.addEventListener('click',e=>{e.stopImmediatePropagation();setTab('knowledge')},true);
+window.addEventListener('click',e=>{if(!e.target.closest?.('nav.tabs [data-tab="knowledge"]'))return;e.preventDefault();e.stopImmediatePropagation();data.tab='knowledge';rememberRoute();render()},true);
 const dialog=document.createElement('dialog');dialog.id='bh19Editor';dialog.innerHTML=`<form class="modal" id="bh19Form"><h2 id="bh19Heading">Wissenseintrag</h2><div class="field"><label for="bh19Title">Titel</label><input id="bh19Title" required maxlength="250"></div><div class="field"><label for="bh19Body">Notizen / Zusammenfassung</label><textarea id="bh19Body" rows="11" placeholder="Stichpunkte, Zusammenfassungen, Erkenntnisse …"></textarea></div><div class="field"><label><input type="checkbox" id="bh19Review"> Für tägliche Uni-Wiederholung vormerken</label></div><footer><button type="button" class="btn" id="bh19Cancel">Abbrechen</button><button type="button" class="btn" id="bh19Delete">Löschen</button><button class="btn primary" type="submit">Speichern</button></footer></form>`;
 document.body.append(dialog);
 const form=dialog.querySelector('form'),title=dialog.querySelector('#bh19Title'),body=dialog.querySelector('#bh19Body'),review=dialog.querySelector('#bh19Review');
@@ -1459,4 +1461,77 @@ if(!localStorage.getItem('brainhome-v23-labor-rename')){
 // Restore the last page only after the knowledge module has registered its view.
 restoreRoute();
 render();
+window.addEventListener('pagehide',rememberRoute);
+window.addEventListener('beforeunload',rememberRoute);
+window.addEventListener('pageshow',()=>{restoreRoute();render()});
 
+
+/* BrainHome 2.4: additive improvements, preserving existing cloud payload. */
+(() => {
+ 'use strict';
+ if(!Array.isArray(data.activityLog))data.activityLog=[];
+ const oldSave24=save;
+ let known24=new Map((data.nodes||[]).map(n=>[n.id,!!n.done]));
+ save=function(...args){
+   if(!Array.isArray(data.activityLog))data.activityLog=[];
+   const stamp=new Date().toISOString();
+   const current=new Map((data.nodes||[]).map(n=>[n.id,!!n.done]));
+   for(const n of data.nodes||[]){
+     if(!known24.has(n.id) && (n.kind==='task'||n.kind==='gift'||n.checkable===true))data.activityLog.push({id:uid(),type:'created',sourceId:n.id,at:stamp});
+     if(known24.has(n.id)&&!known24.get(n.id)&&n.done && (n.kind==='task'||n.checkable===true))data.activityLog.push({id:uid(),type:'completed',sourceId:n.id,at:stamp});
+   }
+   known24=current;
+   return oldSave24(...args);
+ };
+ window.BH24Stats=()=>{
+   const since=Date.now()-30*86400000;
+   const entries=(data.activityLog||[]).filter(e=>Date.parse(e.at)>=since);
+   return {incoming:entries.filter(e=>e.type==='created').length,outgoing:entries.filter(e=>e.type==='completed').length};
+ };
+ // Rebuild the knowledge tab on every navigation; old startup code can overwrite onclick handlers.
+ const previousTab24=setTab;
+ setTab=function(tab,...args){
+   if(tab==='knowledge'){data.tab='knowledge';rememberRoute();render();return}
+   const result=previousTab24(tab,...args);
+   rememberRoute();return result;
+ };
+ const previousRender24=render;
+ render=function(...args){
+   const result=previousRender24(...args);
+   if(data.tab==='tree'&&data.active){
+     const root=get(data.active);
+     const heading=document.querySelector('#app .topline');
+     if(root&&heading&&!heading.querySelector('.bh24-notes')){
+       const b=document.createElement('button');b.type='button';b.className='btn bh24-notes';b.textContent='📝 Notizen';b.onclick=()=>openEditor(root.id);heading.append(b);
+       if(root.notes){const box=document.createElement('details');box.className='bh24-notebox';box.innerHTML='<summary>📝 Notizen zu diesem Lebensbereich</summary><p></p>';box.querySelector('p').textContent=root.notes;heading.after(box)}
+     }
+   }
+   return result;
+ };
+ // Move only real task-tree categories; never silently relocate the independent
+ // private panels (gifts, songs etc.) or overwrite a category with the same name.
+ const MIG='brainhome-v24-relationship-migration';
+ if(!localStorage.getItem(MIG)){
+   const relationship=data.nodes.find(n=>n.parent===null&&/^(Beziehung|Beziehungen)$/i.test(n.name));
+   if(relationship){
+     const names=['Geschenke','Aktivitäten','Lagerfeuerlieder','Bastelideen'];
+     let changed=false;
+     for(const name of names){
+       const candidates=data.nodes.filter(n=>n.name===name&&n.parent!==relationship.id&&(n.kind==='category'||n.kind==='list'));
+       for(const n of candidates){
+         if(n.parent===null || (get(n.parent)?.privateArea===true)){
+           if(!data.nodes.some(x=>x.parent===relationship.id&&x.name===name)){
+             n.parent=relationship.id;changed=true;
+           }
+         }
+       }
+     }
+     if(!data.nodes.some(n=>n.parent===relationship.id&&n.name==='Erziehung')){
+       data.nodes.push({id:uid(),name:'Erziehung',parent:relationship.id,kind:'category',done:false,collapsed:false,notes:''});changed=true;
+     }
+     if(changed)save();
+     localStorage.setItem(MIG,'1');
+   }
+ }
+ render();
+})();

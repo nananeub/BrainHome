@@ -1,16 +1,15 @@
-# BrainHome v2.3 – Kleine Verbesserungen
+# BrainHome v2.4 – Alltagsverbesserungen
 
-- Startseite: **Sofort** und **Geschenke** sind standardmäßig eingeklappt. Tippen auf die Überschrift öffnet sie. Die Wahl wird auf dem jeweiligen Gerät gespeichert.
-- In Aufgabenbäumen werden offene Aufgaben unter demselben Elternknoten nach Priorität sortiert (Sofort, Wichtig, Später, Warten). Kategorien behalten ihre relative Reihenfolge.
-- Der oberste Lebensbereich „Promotion“ wird einmalig in „Labor“ umbenannt, falls es nicht bereits einen Bereich „Labor“ gibt. IDs und Unterpunkte bleiben erhalten.
-- Die funktionierende `cloud.js` bleibt unverändert; `firebase-config.js` wird bewusst nicht mitgeliefert. Die vorhandene funktionierende Datei auf GitHub unbedingt behalten.
-- Service-Worker-Cache auf v23 erhöht.
+- Routinen auf der Startseite vollständig einklappbar, standardmäßig geschlossen; kein erster Eintrag außerhalb der Klappe.
+- Sofort und Geschenke weiterhin einklappbar.
+- Wissensbaum-Navigation erneut gebunden, zuletzt geöffnete Seite beim Aktualisieren merken.
+- Notizen im Lebensbereich über den Button „📝 Notizen“ (bestehendes Notizfeld des Wurzelknotens).
+- 30-Tage-Statistik Eingang/Ausgang ab diesem Update. Neue Aufgaben und Abschlüsse werden als Ereignisse in `activityLog` gespeichert und in JSON/Cloud gesichert. Ältere Ereignisse sind nicht rekonstruierbar.
+- Einmalige, vorsichtige Verschiebung vorhandener echter Kategorien Geschenke, Aktivitäten, Lagerfeuerlieder, Bastelideen unter Beziehung/Beziehungen, soweit sie als verschiebbare Knoten vorliegen. Erziehung wird als Kategorie ergänzt. Eigenständige private Panels bleiben unverändert, um Datenverluste zu vermeiden.
+- Cloud-Modul unverändert. `firebase-config.js` und `firestore.rules` aus dem funktionierenden Repository beibehalten.
 
 ## Installation
-Vorher JSON-Backup exportieren. Dateien ins Repo kopieren, aber die bestehende `firebase-config.js` und `firestore.rules` nicht löschen. App nach GitHub Pages-Deployment neu laden.
+Vorher JSON-Backup exportieren. Die enthaltenen Dateien in GitHub aktualisieren, bestehende Firebase-Konfiguration und Regeln **nicht** überschreiben oder löschen. Cache-Version ist v24.
 
-## Noch offen
-Beziehungskategorien sicher umziehen, Follow-up-Aufgaben mit Abschlusschronik, Statistik, Kalender, Essen-Automatik, Calisthenics und separate große Wissensspeicherung.
-
-## Tests
-JavaScript-Syntax geprüft. Browser-/Firebase-End-to-End-Test ist nicht erfolgt.
+## Test
+JavaScript-Syntax mit Node geprüft, ZIP geprüft. Keine vollständigen Live-Browser-/Firebase-Tests durchgeführt. Erst auf einem Gerät testen und Cloud-Sicherungsstatus kontrollieren.
