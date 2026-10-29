@@ -610,15 +610,11 @@ function pressEnd(e,touch,cancel=false){
  openMoveChooser(s.id);
 }
 const appRoot=$('app');
-appRoot.addEventListener('touchstart',e=>pressStart(e,true),{passive:true});
-appRoot.addEventListener('touchmove',e=>pressMove(e,true),{passive:false});
-appRoot.addEventListener('touchend',e=>pressEnd(e,true));
-appRoot.addEventListener('touchcancel',e=>pressEnd(e,true,true));
-appRoot.addEventListener('pointerdown',e=>pressStart(e,false));
-window.addEventListener('pointermove',e=>pressMove(e,false));
-window.addEventListener('pointerup',e=>pressEnd(e,false));
-window.addEventListener('pointercancel',e=>pressEnd(e,false,true));
-appRoot.addEventListener('contextmenu',e=>{if(BH08_press?.active)e.preventDefault()});
+// v2.7: The legacy 0.8 long-press move handlers are disabled here.
+// They fired alongside the newer tree drag gesture and moved tasks INTO their
+// target task instead of reliably reordering. The 2.7 handler in app.js owns
+// all tree dragging (including the fullscreen dialog). The old move dialog
+// remains available for explicit move actions elsewhere.
 
 // Private panels are sortable even when collapsed; prevent a sort button from toggling <details>.
 document.addEventListener('click',e=>{
@@ -689,5 +685,5 @@ render();
 <div id="v1CloudAccountBox" hidden><p>Angemeldet: <strong id="v1CloudEmail"></strong></p><div class="v1-cloud-row"><button class="btn primary" id="v1CloudSyncBtn" type="button">Jetzt sichern</button><button class="btn" id="v1CloudHistoryBtn" type="button">Ältere Sicherungen</button><button class="btn" id="v1CloudLogOut" type="button">Abmelden</button></div><div id="v1CloudHistory"></div></div>
 <div class="v1-cloud-message" id="v1CloudMessage">BrainHome speichert immer zuerst lokal.</div><p id="v1CloudOfflineNote" class="hint"></p><p class="hint">Cloud-Daten sind mit deinem Konto geschützt, aber nicht Ende-zu-Ende-verschlüsselt. Vertrauliche Passwörter gehören nicht in die Notizen.</p>
 </div></dialog>
-<dialog id="bh11TreeDialog" aria-label="Baum im Vollbild"><div class="bh11-modal-head"><h2 id="bh11TreeTitle">Baumübersicht</h2><button type="button" class="btn" id="bh11TreeClose">✕ Schließen</button></div><div class="bh11-modal-tools"><button type="button" class="btn" id="bh11TreeToggleDone">Erledigte zeigen</button><span class="muted" id="bh11TreeCount"></span></div><div class="bh11-modal-scroll" id="bh11TreeScroll"><div class="bh11-modal-tree" id="bh11TreeContent"></div></div><div class="bh11-modal-hint">Mit einem Finger in alle Richtungen scrollen · Kategorien lassen sich einklappen.</div></dialog><script src="./firebase-config.js?v=24" onerror="window.BH_CONFIG_LOAD_ERROR=true"></script><script src="./app.js?v=26"></script><script type="module" src="./cloud.js"></script>
+<dialog id="bh11TreeDialog" aria-label="Baum im Vollbild"><div class="bh11-modal-head"><h2 id="bh11TreeTitle">Baumübersicht</h2><button type="button" class="btn" id="bh11TreeClose">✕ Schließen</button></div><div class="bh11-modal-tools"><button type="button" class="btn" id="bh11TreeToggleDone">Erledigte zeigen</button><span class="muted" id="bh11TreeCount"></span></div><div class="bh11-modal-scroll" id="bh11TreeScroll"><div class="bh11-modal-tree" id="bh11TreeContent"></div></div><div class="bh11-modal-hint">Mit einem Finger in alle Richtungen scrollen · Kategorien lassen sich einklappen.</div></dialog><script src="./firebase-config.js?v=27" onerror="window.BH_CONFIG_LOAD_ERROR=true"></script><script src="./app.js?v=27"></script><script type="module" src="./cloud.js"></script>
 <script>if ('serviceWorker'  in navigator) {window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('Offline-Modus:',e)));}</script></body></html>

@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','taskEvents'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','taskEvents','vouchers'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -59,7 +59,7 @@ function v1Apply(payload,{history=true,cloud=true}={}){
 }
 function v1IsMeaningfulLocal(){
  if((data.knowledgeNodes||[]).length)return true;
- if((data.shopping||[]).length||(data.routines||[]).length||(data.finances||[]).length||(data.songs||[]).length||(data.routineGroups||[]).length)return true;
+ if((data.shopping||[]).length||(data.routines||[]).length||(data.finances||[]).length||(data.vouchers||[]).length||(data.songs||[]).length||(data.routineGroups||[]).length)return true;
  return (data.nodes||[]).some(n=>n.userCreated||n.privateSection||(n.parent!==null&&!(['Essen','Geschenke'].includes(n.name)&&n.kind==='category'&&n.parent===privateRoot()?.id)));
 }
 function v1RestoreTrash(id){const batch=(data.trash||[]).find(t=>t.id===id);if(!batch)return;
@@ -1472,7 +1472,6 @@ render();
 'use strict';
 const ACTIVE_ROUTE = 'brainhome-v25-active-route';
 const STATS_OPEN = 'brainhome-v25-stats-visible';
-const STATS_COLOR = 'brainhome-v25-incoming-color';
 const rootRelationship = () => data.nodes.find(n => n.parent===null && /^Beziehung(en)?$/i.test(n.name));
 const oldPrivateRoot = () => privateRoot();
 const stamp = () => new Date().toISOString();
@@ -1672,7 +1671,6 @@ window.addEventListener('click',e=>{
 // The completed series is always visible; the incoming series is opt-in.
 let statsShowIncoming=false;
 let statsPeriod='week',statsOffset=0;
-let incomingColor=localStorage.getItem(STATS_COLOR)||'#b37847';
 const dayKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 function isoWeek(date){
  const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()));
@@ -1683,51 +1681,38 @@ function isoWeek(date){
 function statsSlots(){
  const today=new Date();today.setHours(12,0,0,0);
  let slots=[],title='';
- if(statsPeriod==='day'){
-  const date=new Date(today);date.setDate(date.getDate()+statsOffset);
-  const prefix=dayKey(date);
-  for(let i=0;i<24;i++)slots.push({key:prefix+'T'+String(i).padStart(2,'0'),label:i%4===0?String(i).padStart(2,'0')+'h':''});
-  title=date.toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
- }else if(statsPeriod==='week'){
+ if(statsPeriod==='week'){
   const start=new Date(today);start.setDate(today.getDate()-((today.getDay()+6)%7)+7*statsOffset);
-  for(let i=0;i<7;i++){
-   const d=new Date(start);d.setDate(start.getDate()+i);
-   slots.push({key:dayKey(d),label:['Mo','Di','Mi','Do','Fr','Sa','So'][i]});
-  }
+  for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);slots.push({key:dayKey(d),label:['Mo','Di','Mi','Do','Fr','Sa','So'][i]});}
   const kw=isoWeek(start);title=`KW ${kw.number} · ${kw.year}`;
- }else{
+ }else if(statsPeriod==='month'){
   const start=new Date(today.getFullYear(),today.getMonth()+statsOffset,1,12);
   const days=new Date(start.getFullYear(),start.getMonth()+1,0).getDate();
-  for(let i=1;i<=days;i++){
-   const d=new Date(start.getFullYear(),start.getMonth(),i,12);
-   slots.push({key:dayKey(d),label:String(i)});
-  }
+  for(let i=1;i<=days;i++){const d=new Date(start.getFullYear(),start.getMonth(),i,12);slots.push({key:dayKey(d),label:String(i)});}
   title=start.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+ }else{
+  const year=today.getFullYear()+statsOffset;
+  for(let month=0;month<12;month++){const d=new Date(year,month,1,12);slots.push({key:year+'-'+String(month+1).padStart(2,'0'),label:d.toLocaleDateString('de-DE',{month:'short'}).replace('.','')});}
+  title=String(year);
  }
  const totals=new Map(slots.map(item=>[item.key,{incoming:0,outgoing:0}]));
- const keyFor=raw=>{
-  const date=new Date(raw);if(Number.isNaN(date.getTime()))return null;
-  if(statsPeriod==='day')return dayKey(date)+'T'+String(date.getHours()).padStart(2,'0');
-  return dayKey(date);
- };
+ const keyFor=raw=>{const d=new Date(raw);if(!Number.isFinite(d.getTime()))return null;return statsPeriod==='year'?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`:dayKey(d)};
  const registered=new Set();
  for(const event of data.taskEvents||[]){
   if(!event?.at||!['created','completed'].includes(event.type))continue;
   if(event.type==='completed')registered.add(event.taskId);
-  const slot=totals.get(keyFor(event.at));
-  if(slot)slot[event.type==='created'?'incoming':'outgoing']++;
+  const slot=totals.get(keyFor(event.at));if(slot)slot[event.type==='created'?'incoming':'outgoing']++;
  }
  for(const node of data.nodes){
   if(!isTaskRecord(node)||!node.done||!node.completedAt||registered.has(node.id))continue;
   const slot=totals.get(keyFor(node.completedAt));if(slot)slot.outgoing++;
  }
- // Older recurring actions were counted in BrainHome's original completion chart.
  for(const event of data.completionLog||[]){
   if(!event?.at||!['routine','gift','prep'].includes(event.kind))continue;
   const slot=totals.get(keyFor(event.at));if(slot)slot.outgoing++;
  }
  const all=slots.map(slot=>({...slot,...totals.get(slot.key)}));
- return {all,title,incoming:all.reduce((total,s)=>total+s.incoming,0),outgoing:all.reduce((total,s)=>total+s.outgoing,0)};
+ return {all,title,incoming:all.reduce((sum,s)=>sum+s.incoming,0),outgoing:all.reduce((sum,s)=>sum+s.outgoing,0)};
 }
 function reportHTML(){
  const {all,title,incoming,outgoing}=statsSlots();
@@ -1738,12 +1723,12 @@ function reportHTML(){
   const number=statsShowIncoming?`${s.incoming||''}${s.incoming||s.outgoing?' / ':''}${s.outgoing||''}`:(s.outgoing||'');
   return `<div class="bh26-slot" title="${esc(s.key)}: ${s.outgoing} erledigt${statsShowIncoming?', '+s.incoming+' hinzugefügt':''}"><span class="bh26-value">${esc(number)}</span><div class="bh26-pair">${inBar}${doneBar}</div><span class="bh26-label">${esc(s.label)}</span></div>`;
  }).join('');
- const periodButtons=[['day','Tag'],['week','Woche'],['month','Monat']].map(([id,label])=>`<button type="button" data-bh25-period="${id}" aria-pressed="${statsPeriod===id}" class="bh26-period">${label}</button>`).join('');
- return `<section class="bh26-report" style="--bh26-in:${esc(incomingColor)}" aria-label="Aufgabenstatistik">
+ const periodButtons=[['week','Woche'],['month','Monat'],['year','Jahr']].map(([id,label])=>`<button type="button" data-bh25-period="${id}" aria-pressed="${statsPeriod===id}" class="bh26-period">${label}</button>`).join('');
+ return `<section class="bh26-report"  aria-label="Aufgabenstatistik">
  <div class="bh26-top"><strong>Erledigte Aufgaben</strong><div class="bh26-periods" role="group" aria-label="Zeitraum">${periodButtons}</div></div>
  <div class="bh26-nav"><button type="button" data-bh25-shift="-1" aria-label="Vorheriger Zeitraum">‹</button><span>${esc(title)}</span><button type="button" data-bh25-shift="1" aria-label="Nächster Zeitraum">›</button></div>
  <div class="bh26-scroller"><div class="bh26-bars bh26-${statsPeriod}">${bars}</div></div>
- <div class="bh26-bottom"><span class="bh26-done-total">✓ ${outgoing} erledigt</span>${statsShowIncoming?`<span class="bh26-in-total">＋ ${incoming} hinzugefügt</span><label class="bh26-color" title="Farbe für hinzugefügte Aufgaben">Farbe <input type="color" data-bh25-color value="${esc(incomingColor)}" aria-label="Farbe der Eingänge"></label>`:''}<button class="bh26-in-toggle" type="button" data-bh25-stats-toggle aria-pressed="${statsShowIncoming}">${statsShowIncoming?'✓ Hinzugefügte sichtbar':'＋ Hinzugefügte anzeigen'}</button></div>
+ <div class="bh26-bottom"><span class="bh26-done-total">✓ ${outgoing} erledigt</span>${statsShowIncoming?`<span class="bh26-in-total">＋ ${incoming} hinzugefügt</span>`:''}<button class="bh26-in-toggle" type="button" data-bh25-stats-toggle aria-pressed="${statsShowIncoming}">${statsShowIncoming?'✓ Hinzugefügte sichtbar':'＋ Hinzugefügte anzeigen'}</button></div>
  </section>`;
 }
 function adjustHistory(){
@@ -1765,15 +1750,22 @@ document.addEventListener('click',e=>{
  if(b.hasAttribute('data-bh25-shift'))statsOffset+=Number(b.dataset.bh25Shift);
  render();
 },true);
-document.addEventListener('input',e=>{if(e.target.hasAttribute('data-bh25-color')){
- incomingColor=e.target.value;localStorage.setItem(STATS_COLOR,incomingColor);
- e.target.closest('.bh26-report')?.style.setProperty('--bh26-in',incomingColor);
-}},true);
+
 
 // Studienstiftung: nested projects and dated events, stored as existing nodes.
 // Appointments are non-checkable entries, so a calendar event does not distort
 // the completion statistic. Every entry retains its ordinary node ID and notes.
 const foundationRoot=()=>data.nodes.find(n=>n.parent===null && /^Studienstiftung(?: des deutschen Volkes)?$/i.test(n.name));
+// v2.7: folders from 2.6 are internal storage containers, NEVER visible tree branches.
+const foundationTreeSpecial=isSpecialTreeNode;
+isSpecialTreeNode=function(n){
+ const root=foundationRoot();
+ if(root && rootOf(n)?.id===root.id){
+  if(n.appointment)return true;
+  if(n.parent===root.id && isCategory(n) && ['Projekte','Termine'].includes(n.name))return true;
+ }
+ return foundationTreeSpecial(n);
+};
 function foundationFolder(name){
  const root=foundationRoot();if(!root)return null;
  return data.nodes.find(n=>n.parent===root.id && isCategory(n) && n.name===name)||null;
@@ -1812,7 +1804,8 @@ function foundationBranches(){
 function openFoundationAppointment(id=null){
  ensureFoundationFolders();const entry=id?get(id):null;
  editingAppointment=entry?.id||null;
- const choices=foundationBranches();
+ const container=foundationFolder('Projekte'),dates=foundationFolder('Termine');
+ const choices=foundationBranches().filter(n=>n.id===dates?.id || n.id===container?.id || (container && (n.parent===container.id || descendants(container.id).includes(n.id))) || n.id===entry?.parent);
  fld('bh26AppointmentParent').replaceChildren(...choices.map(n=>new Option(path(n),n.id)));
  fld('bh26AppointmentParent').value=entry?.parent||foundationFolder('Termine')?.id||foundationRoot()?.id;
  fld('bh26AppointmentName').value=entry?.name||'';
@@ -1833,23 +1826,79 @@ foundationDialog.querySelector('form').addEventListener('submit',e=>{
  else data.nodes.push({id:uid(),collapsed:false,...fields});
  save();foundationDialog.close();render();notice('Termin gespeichert');
 });
+function foundationPanelRows(parentId,depth=0,seen=new Set()){
+ if(depth>10||seen.has(parentId))return '';
+ const visited=new Set(seen);visited.add(parentId);
+ return kids(parentId).filter(n=>!n.appointment).map(n=>{
+  const children=foundationPanelRows(n.id,depth+1,visited);
+  return `<div class="bh27-project-row" style="--depth:${depth}">
+   <div class="bh27-project-line"><span class="bh27-project-title">${isCategory(n)?'▣ ':isTask(n)?'□ ':'• '}${esc(n.name)}</span>
+   ${n.due?`<small>📅 ${esc(n.due)}</small>`:''}<button type="button" class="mini" data-bh27-project-edit="${esc(n.id)}" aria-label="Projekt bearbeiten">✎</button>
+   <button type="button" class="mini" data-bh27-project-sub="${esc(n.id)}" aria-label="Unterprojekt hinzufügen">＋</button></div>
+   ${n.notes?.trim()?`<small class="bh27-project-note">${esc(n.notes)}</small>`:''}${children}
+  </div>`;
+ }).join('');
+}
+function foundationPanel(){
+ const root=foundationRoot();if(!root)return '';
+ const projects=foundationFolder('Projekte'),appointments=data.nodes.filter(n=>n.appointment && n.due && rootOf(n)?.id===root.id && !n.archived)
+ .sort((a,b)=>(a.due+'T'+(a.appointmentTime||'00:00')).localeCompare(b.due+'T'+(b.appointmentTime||'00:00')));
+ return `<section class="bh27-foundation-panel" aria-label="Studienstiftung Notizen und Projekte">
+  <section class="bh27-foundation-notes"><h3>📝 Notizen</h3><textarea id="bh27FoundationNotes" rows="5" placeholder="Deine Gedanken zur Studienstiftung …">${esc(root.notes||'')}</textarea><button class="btn" type="button" data-bh27-save-notes>Notizen speichern</button></section>
+  <section class="bh27-foundation-projects"><div class="bh27-foundation-heading"><h3>▣ Projekte</h3><button class="btn" type="button" data-bh27-add-project="${esc(projects?.id||'')}">＋ Projekt</button></div>
+   ${projects?foundationPanelRows(projects.id):''}${projects&&!kids(projects.id).length?'<p class="muted">Hier kannst du eigene Projekte anlegen.</p>':''}</section>
+  <section class="bh27-foundation-appointments"><div class="bh27-foundation-heading"><h3>📅 Termine</h3><button class="btn" type="button" data-bh27-add-appointment>＋ Termin</button></div>
+   ${appointments.map(n=>`<button type="button" class="bh27-appointment-row" data-bh27-edit-appointment="${esc(n.id)}"><time>${esc(new Date(n.due+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'}))}${n.appointmentTime?' · '+esc(n.appointmentTime):''}</time><span>${esc(n.name)}</span><span>✎</span></button>`).join('')||'<p class="muted">Noch keine Termine eingetragen.</p>'}</section>
+ </section>`;
+}
 function addFoundationUI(){
  const root=foundationRoot();if(!root||data.tab!=='tree'||data.active!==root.id)return;
  ensureFoundationFolders();
  const host=document.querySelector('#app');if(!host)return;
- const topline=host.querySelector('.topline');
- if(topline&&!topline.querySelector('[data-bh26-add-project]')){
-  const controls=document.createElement('div');controls.className='bh26-foundation-actions';
-  controls.innerHTML='<button type="button" class="btn" data-bh26-add-project>＋ Projekt</button><button type="button" class="btn" data-bh26-add-date>＋ Termin</button>';
-  topline.append(controls);
- }
- const appointments=data.nodes.filter(n=>n.appointment && n.due && rootOf(n)?.id===root.id && !n.archived);
- if(!appointments.length)return;
- appointments.sort((a,b)=>(a.due+'T'+(a.appointmentTime||'00:00')).localeCompare(b.due+'T'+(b.appointmentTime||'00:00')));
- const panel=document.createElement('section');panel.className='bh26-foundation-dates';
- panel.innerHTML=`<h3>Termine</h3>${appointments.map(n=>`<button type="button" data-bh26-edit-date="${esc(n.id)}" class="bh26-foundation-date"><time>${esc(new Date(n.due+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'}))}${n.appointmentTime?' · '+esc(n.appointmentTime):''}</time><span>${esc(n.name)}</span><span aria-hidden="true">✎</span></button>`).join('')}`;
- topline?.after(panel);
+ host.querySelectorAll('[data-bh26-add-project],[data-bh26-add-date],.bh26-foundation-dates,.bh27-foundation-panel').forEach(n=>n.remove());
+ host.querySelector('[data-bh25-notes]')?.remove();
+ host.insertAdjacentHTML('beforeend',foundationPanel());
 }
+// Existing v2.6 projects and appointments retain their node IDs, descendants, dates,
+// notes, cloud history and backup representation. Only their VIEW changes.
+const foundationProjectDialog=document.createElement('dialog');
+foundationProjectDialog.className='bh27-project-dialog';
+foundationProjectDialog.innerHTML=`<form class="modal" id="bh27ProjectForm"><h2 id="bh27ProjectHeading">Projekt anlegen</h2><label class="field">Projektname<input id="bh27ProjectName" maxlength="250" required></label><label class="field">Unterprojekt von<select id="bh27ProjectParent"></select></label><label class="field">Notizen<textarea id="bh27ProjectNotes" rows="4"></textarea></label><footer><button type="button" class="btn" data-bh27-project-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
+document.body.append(foundationProjectDialog);
+let editingFoundationProject=null;
+function openFoundationProject(id=null,parentId=null){
+ ensureFoundationFolders();const current=id?get(id):null,container=foundationFolder('Projekte');if(!container)return;
+ editingFoundationProject=current?.id||null;
+ const categories=[container];const visit=(parent,seen=new Set())=>{if(seen.has(parent.id))return;seen.add(parent.id);for(const n of kids(parent.id))if(isCategory(n)){categories.push(n);visit(n,seen)}};visit(container);
+ const select=foundationProjectDialog.querySelector('#bh27ProjectParent');
+ select.replaceChildren(...categories.filter(n=>!current||n.id!==current.id&&!descendants(current.id).includes(n.id)).map(n=>new Option(n.id===container.id?'Projekte':path(n).replace(/^.*?Projekte › /,''),n.id)));
+ select.value=current?.parent||parentId||container.id;
+ foundationProjectDialog.querySelector('#bh27ProjectHeading').textContent=current?'Projekt bearbeiten':'Projekt anlegen';
+ foundationProjectDialog.querySelector('#bh27ProjectName').value=current?.name||'';
+ foundationProjectDialog.querySelector('#bh27ProjectNotes').value=current?.notes||'';
+ foundationProjectDialog.showModal();
+}
+foundationProjectDialog.querySelector('[data-bh27-project-cancel]').onclick=()=>foundationProjectDialog.close();
+foundationProjectDialog.querySelector('form').addEventListener('submit',e=>{
+ e.preventDefault();const container=foundationFolder('Projekte'),name=foundationProjectDialog.querySelector('#bh27ProjectName').value.trim(),parent=foundationProjectDialog.querySelector('#bh27ProjectParent').value;
+ if(!container||!name||!get(parent))return;
+ const fields={name,parent,notes:foundationProjectDialog.querySelector('#bh27ProjectNotes').value,kind:'category',checkable:false,done:false,priority:''};
+ if(editingFoundationProject){const n=get(editingFoundationProject);if(n)Object.assign(n,fields)}
+ else data.nodes.push({id:uid(),collapsed:false,userCreated:true,...fields});
+ save();foundationProjectDialog.close();render();notice('Projekt gespeichert');
+});
+
+document.addEventListener('click',e=>{
+ const b=e.target.closest?.('[data-bh27-add-project],[data-bh27-project-sub],[data-bh27-project-edit],[data-bh27-add-appointment],[data-bh27-edit-appointment],[data-bh27-save-notes]');
+ if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(b.hasAttribute('data-bh27-add-project'))openFoundationProject(null,b.dataset.bh27AddProject);
+ if(b.hasAttribute('data-bh27-project-sub'))openFoundationProject(null,b.dataset.bh27ProjectSub);
+ if(b.hasAttribute('data-bh27-project-edit'))openFoundationProject(b.dataset.bh27ProjectEdit);
+ if(b.hasAttribute('data-bh27-add-appointment'))openFoundationAppointment();
+ if(b.hasAttribute('data-bh27-edit-appointment'))openFoundationAppointment(b.dataset.bh27EditAppointment);
+ if(b.hasAttribute('data-bh27-save-notes')){const root=foundationRoot();if(root){root.notes=document.getElementById('bh27FoundationNotes')?.value||'';save();render();notice('Notizen gespeichert')}}
+},true);
 document.addEventListener('click',e=>{
  const b=e.target.closest?.('[data-bh26-add-project],[data-bh26-add-date],[data-bh26-edit-date]');if(!b)return;
  e.preventDefault();e.stopImmediatePropagation();
@@ -1889,15 +1938,15 @@ const style=document.createElement('style');style.textContent=`
 .bh26-nav button{background:transparent;border:0;color:#54775e;padding:5px 10px;font-size:19px;min-width:34px}
 .bh26-scroller{overflow-x:auto;scrollbar-width:thin;touch-action:pan-x}
 .bh26-bars{display:flex;align-items:flex-end;width:100%;height:122px;gap:3px;padding:5px 0 1px;border-bottom:1px solid #dbe7db}
-.bh26-bars.bh26-day,.bh26-bars.bh26-month{min-width:430px}
+.bh26-bars.bh26-month{min-width:430px}
 .bh26-slot{min-width:0;flex:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px}
 .bh26-value{height:11px;font-size:9px;color:#355c43;line-height:11px;white-space:nowrap}
 .bh26-pair{height:79px;display:flex;align-items:flex-end;justify-content:center;gap:2px;width:100%}
 .bh26-bar{display:block;min-width:3px;width:min(38%,22px);border-radius:4px 4px 1px 1px}
-.bh26-bar.bh26-done{background:#689977}.bh26-bar.bh26-in{background:var(--bh26-in)}
+.bh26-bar.bh26-done{background:#689977}.bh26-bar.bh26-in{background:#202620}
 .bh26-label{height:13px;font-size:9px;line-height:13px;color:#72917b;white-space:nowrap}
 .bh26-bottom{padding-top:10px;justify-content:flex-start;font-size:11px}
-.bh26-done-total{font-weight:650;color:#397c56}.bh26-in-total{font-weight:600;color:var(--bh26-in)}
+.bh26-done-total{font-weight:650;color:#397c56}.bh26-in-total{font-weight:600;color:#202620}
 .bh26-in-toggle{margin-left:auto;font-size:11px;background:#f0f6ef;color:#3d674b;border:1px solid #d3e3d4;border-radius:8px;padding:6px 9px;min-height:30px}
 .bh26-in-toggle[aria-pressed="true"]{background:#e3efe5;border-color:#90b398}
 .bh26-color{display:flex;align-items:center;gap:5px;font-size:10px;color:#687e6c}
@@ -1910,5 +1959,185 @@ const style=document.createElement('style');style.textContent=`
 .bh26-foundation-date time{white-space:nowrap;min-width:106px;color:#796394;font-size:11px}
 .bh26-foundation-date span:nth-child(2){flex:1}.bh26-foundation-date:hover{background:#ede3f5}
 @media(max-width:460px){.bh26-foundation-date{flex-wrap:wrap;gap:3px 8px}.bh26-foundation-date time{min-width:0}.bh26-foundation-actions{width:100%}}
+
+.bh27-foundation-panel{display:grid;gap:14px;margin-top:22px}
+.bh27-foundation-panel>section{padding:14px;border:1px solid #dbe7da;border-radius:13px;background:#f9fcf8}
+.bh27-foundation-panel h3{margin:0;font-size:15px;color:#345d42}
+.bh27-foundation-notes textarea{display:block;width:100%;min-height:105px;margin:12px 0 9px;border:1px solid #c9d9c9;border-radius:9px;background:#fff;padding:11px;font:inherit;color:inherit;resize:vertical}
+.bh27-foundation-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px}
+.bh27-project-row{margin:4px 0 4px calc(var(--depth)*13px);border-left:2px solid #dce9de;padding-left:9px}
+.bh27-project-line{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:5px 0}
+.bh27-project-title{flex:1;font-weight:600;min-width:120px}.bh27-project-line small,.bh27-project-note{color:#65816b}
+.bh27-project-note{display:block;white-space:pre-wrap;margin:0 0 8px 0}
+.bh27-appointment-row{display:flex;gap:9px;width:100%;align-items:center;text-align:left;border:0;border-top:1px solid #dce9de;background:transparent;color:inherit;padding:9px 2px;font:inherit}
+.bh27-appointment-row time{font-size:11px;color:#6b816f;white-space:nowrap}.bh27-appointment-row span:nth-child(2){flex:1}
+.bh27-vouchers{border-top:1px solid #cfdecf;margin-top:13px;padding-top:13px}.bh27-vouchers h4{margin:0}
+.bh27-voucher-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #e0e9df}
+.bh27-voucher-row .bh27-voucher-info{flex:1}.bh27-voucher-row small{display:block;color:#6b826f}
+.bh27-voucher-row.is-used{opacity:.6}.bh27-voucher-row.is-used strong{text-decoration:line-through}
+.bh27-voucher-dialog{max-width:min(94vw,540px)}.bh27-voucher-dialog input,.bh27-voucher-dialog textarea{width:100%}
+.bh27-drag-ghost{position:fixed;z-index:99999;pointer-events:none;transform:translate(12px,14px);background:#e3f0e6;border:1px solid #658e70;padding:8px 13px;border-radius:9px;box-shadow:0 5px 22px #203e2960;max-width:230px;color:#264f31;font-size:13px}
+.bh27-drop-node{outline:3px solid #55996a!important;background:#dceddf!important;border-radius:10px}
+.bh27-drag-source{opacity:.4}.bh27-dragging{user-select:none}
 `;document.head.append(style);
+})();
+
+/* BrainHome 2.7 — vouchers and long-press tree moves. Cloud integration uses existing payload. */
+(() => {
+'use strict';
+// Vouchers are stored independently from monthly recurring payments.
+const vouchers=()=>Array.isArray(data.vouchers)?data.vouchers:(data.vouchers=[]);
+const previousFinanceHTML=financesHTML;
+financesHTML=function(){
+ const original=previousFinanceHTML();
+ const items=vouchers().slice().sort((a,b)=>Number(!!a.redeemed)-Number(!!b.redeemed)||(a.expires||'9999').localeCompare(b.expires||'9999'));
+ const rows=items.map(v=>`<div class="bh27-voucher-row ${v.redeemed?'is-used':''}">
+  <input type="checkbox" data-bh27-voucher-toggle="${esc(v.id)}" ${v.redeemed?'checked':''} aria-label="${esc(v.name)} eingelöst">
+  <span class="bh27-voucher-info"><strong>${esc(v.name)}</strong><small>${v.value!==''&&v.value!=null?euro(Number(v.value))+' · ':''}${v.expires?'Gültig bis '+esc(v.expires)+' · ':''}${v.redeemed?'Eingelöst':'Offen'}${v.code?' · Code: '+esc(v.code):''}${v.notes?' · '+esc(v.notes):''}</small></span>
+  <button type="button" class="mini" data-bh27-voucher-edit="${esc(v.id)}" aria-label="Gutschein bearbeiten">✎</button>
+  <button type="button" class="mini" data-bh27-voucher-delete="${esc(v.id)}" aria-label="Gutschein löschen">×</button>
+ </div>`).join('');
+ return original+`<section class="bh27-vouchers"><div class="topline"><h4>🎟️ Offene Gutscheine (${items.filter(v=>!v.redeemed).length})</h4><button type="button" class="btn" data-bh27-voucher-add>＋ Gutschein</button></div>${rows||'<p class="hint">Hier kannst du Gutscheine sammeln, die du noch einlösen möchtest.</p>'}</section>`;
+};
+const voucherDialog=document.createElement('dialog');voucherDialog.className='bh27-voucher-dialog';
+voucherDialog.innerHTML=`<form class="modal" id="bh27VoucherForm"><h2>🎟️ Gutschein</h2>
+<label class="field">Gutschein / Geschäft<input id="bh27VoucherName" maxlength="200" required></label>
+<label class="field">Wert in Euro (optional)<input id="bh27VoucherValue" type="number" min="0" step="0.01"></label>
+<label class="field">Gültig bis (optional)<input id="bh27VoucherExpires" type="date"></label>
+<label class="field">Code (optional)<input id="bh27VoucherCode" maxlength="300"></label>
+<label class="field">Notizen<textarea id="bh27VoucherNotes" rows="3"></textarea></label>
+<footer><button type="button" class="btn" data-bh27-voucher-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
+document.body.append(voucherDialog);
+let editingVoucher=null;
+const vf=id=>voucherDialog.querySelector('#bh27Voucher'+id);
+function openVoucher(id=null){
+ const voucher=id?vouchers().find(v=>v.id===id):null;
+ editingVoucher=voucher?.id||null;
+ vf('Name').value=voucher?.name||'';vf('Value').value=voucher?.value??'';vf('Expires').value=voucher?.expires||'';
+ vf('Code').value=voucher?.code||'';vf('Notes').value=voucher?.notes||'';
+ voucherDialog.showModal();vf('Name').focus();
+}
+voucherDialog.querySelector('[data-bh27-voucher-cancel]').onclick=()=>voucherDialog.close();
+voucherDialog.querySelector('form').addEventListener('submit',e=>{
+ e.preventDefault();const name=vf('Name').value.trim();if(!name)return;
+ const fields={name,value:vf('Value').value===''?'':Number(vf('Value').value),expires:vf('Expires').value,code:vf('Code').value.trim(),notes:vf('Notes').value};
+ const voucher=editingVoucher?vouchers().find(v=>v.id===editingVoucher):null;
+ if(voucher)Object.assign(voucher,fields);else vouchers().push({id:uid(),...fields,redeemed:false});
+ save();voucherDialog.close();render();notice('Gutschein gespeichert');
+});
+document.addEventListener('click',e=>{
+ const b=e.target.closest?.('[data-bh27-voucher-add],[data-bh27-voucher-edit],[data-bh27-voucher-delete]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(b.hasAttribute('data-bh27-voucher-add'))openVoucher();
+ else if(b.hasAttribute('data-bh27-voucher-edit'))openVoucher(b.dataset.bh27VoucherEdit);
+ else if(b.hasAttribute('data-bh27-voucher-delete')){
+  if(!confirm('Diesen Gutschein löschen?'))return;
+  data.vouchers=vouchers().filter(v=>v.id!==b.dataset.bh27VoucherDelete);save();render();
+ }
+},true);
+document.addEventListener('change',e=>{
+ const b=e.target.closest?.('[data-bh27-voucher-toggle]');if(!b)return;
+ const voucher=vouchers().find(v=>v.id===b.dataset.bh27VoucherToggle);
+ if(voucher){voucher.redeemed=b.checked;save();render();}
+},true);
+
+// Manual ordering beats automatic priority *only* within a group explicitly reordered.
+// Other branches retain their existing automatic priority sorting.
+const previousOrderedTreeKids=orderedTreeKids;
+orderedTreeKids=function(id){
+ const result=previousOrderedTreeKids(id);
+ if(result.length && result.every(n=>Number.isFinite(n.bh27Order)))return result.sort((a,b)=>a.bh27Order-b.bh27Order);
+ return result;
+};
+
+const HOLD_MS=520,MOVE_THRESHOLD=13;
+let hold=null,active=null,ghost=null,destination=null,ignoreClickUntil=0;
+function candidate(node){
+ const row=node?.closest?.('.bh13-node[data-node-id],.bh11-row[data-node-id],.outline-row');
+ if(!row)return null;
+ if(!row.closest('#app,#bh11TreeDialog'))return null;
+ const id=row.dataset.nodeId||row.querySelector('[data-action="edit"][data-id]')?.dataset.id;
+ const record=id&&get(id);
+ if(!record||record.parent===null||isPantry(record)||isGift(record)||record.appointment||record.privateSection)return null;
+ return {row,record};
+}
+function dragHandle(el){
+ return !!el?.closest?.('.bh13-name,.outline-name,.bh11-name,.name') && !el.closest('button,input,textarea,select,a,summary,.bh27-foundation-panel');
+}
+function clearHold(){if(hold?.timer)clearTimeout(hold.timer);hold=null}
+function clearDestination(){destination?.row?.classList.remove('bh27-drop-node');destination=null}
+function cleanDrag(){active?.row?.classList.remove('bh27-drag-source');ghost?.remove();ghost=null;active=null;clearDestination();document.body.classList.remove('bh27-dragging')}
+function at(x,y){const el=document.elementFromPoint(x,y);return candidate(el)}
+function sameRoot(a,b){return rootOf(a)?.id===rootOf(b)?.id}
+function valid(source,target){return source&&target&&source.id!==target.id&&sameRoot(source,target)&&!descendants(source.id).includes(target.id)}
+function start(e,touch){
+ if(!touch&&(e.button!==0||e.pointerType==='touch'))return;
+ if(!dragHandle(e.target))return;
+ const item=candidate(e.target),p=touch?e.touches?.[0]:e;
+ if(!item||!p||hold||active)return;
+ const next={...item,touch,x:p.clientX,y:p.clientY,lastX:p.clientX,lastY:p.clientY,timer:0};
+ next.timer=setTimeout(()=>{
+  if(hold!==next)return;hold=null;
+  if(!get(next.record.id))return;
+  active={...next,moved:false};active.row.classList.add('bh27-drag-source');
+  ghost=document.createElement('div');ghost.className='bh27-drag-ghost';ghost.textContent=next.record.name;
+  ghost.style.left=next.lastX+'px';ghost.style.top=next.lastY+'px';document.body.append(ghost);
+  document.body.classList.add('bh27-dragging');
+  try{navigator.vibrate?.(22)}catch{}
+ },HOLD_MS);
+ hold=next;
+}
+function moving(e,touch){
+ const p=touch?e.touches?.[0]:e;if(!p)return;
+ if(hold&&hold.touch===touch){
+  hold.lastX=p.clientX;hold.lastY=p.clientY;
+  if(Math.hypot(hold.x-p.clientX,hold.y-p.clientY)>MOVE_THRESHOLD)clearHold();
+ }
+ if(!active||active.touch!==touch)return;
+ if(e.cancelable)e.preventDefault();
+ active.moved ||= Math.hypot(active.x-p.clientX,active.y-p.clientY)>MOVE_THRESHOLD;
+ ghost.style.left=p.clientX+'px';ghost.style.top=p.clientY+'px';
+ const hit=at(p.clientX,p.clientY);
+ const next=hit&&valid(active.record,hit.record)?hit:null;
+ if(destination?.row!==next?.row){clearDestination();destination=next;next?.row.classList.add('bh27-drop-node')}
+ if(p.clientY<75)window.scrollBy(0,-9);
+ else if(p.clientY>window.innerHeight-75)window.scrollBy(0,9);
+}
+function finish(e,touch){
+ if(hold?.touch===touch)clearHold();
+ if(!active||active.touch!==touch)return;
+ const item=active,p=touch?e.changedTouches?.[0]:e;
+ const hit=p?at(p.clientX,p.clientY):destination;
+ ignoreClickUntil=Date.now()+750;
+ cleanDrag();
+ if(!item.moved||!hit||!valid(item.record,hit.record))return;
+ const source=get(item.record.id),target=get(hit.record.id);if(!source||!target)return;
+ // A drop on a category places the task IN that category. Reordering two
+ // sibling categories instead reorders them at their current level.
+ const asSibling=!isCategory(target)||(isCategory(source)&&isCategory(target)&&source.parent===target.parent);
+ const newParent=asSibling?target.parent:target.id;
+ if(newParent===source.id||descendants(source.id).includes(newParent))return;
+ const siblings=orderedTreeKids(newParent).filter(n=>n.id!==source.id);
+ if(asSibling){const i=siblings.findIndex(n=>n.id===target.id);siblings.splice(i<0?siblings.length:i,0,source)}
+ else {siblings.push(source);target.collapsed=false}
+ source.parent=newParent;
+ // Include any hidden siblings in the new manual ordering without deleting them.
+ siblings.forEach((n,index)=>{n.bh27Order=index});
+ save();render();notice('Eintrag verschoben · ↶ macht es rückgängig');
+}
+// Touch and mouse are handled separately to prevent Android synthetic mouse events.
+document.addEventListener('touchstart',e=>start(e,true),{capture:true,passive:true});
+document.addEventListener('pointerdown',e=>start(e,false),true);
+window.addEventListener('touchmove',e=>moving(e,true),{capture:true,passive:false});
+window.addEventListener('pointermove',e=>{if(e.pointerType!=='touch')moving(e,false)},true);
+window.addEventListener('touchend',e=>finish(e,true),true);
+window.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')finish(e,false)},true);
+window.addEventListener('touchcancel',()=>{clearHold();cleanDrag()},true);
+window.addEventListener('pointercancel',()=>{clearHold();cleanDrag()},true);
+document.addEventListener('click',e=>{
+ if(Date.now()<ignoreClickUntil&&e.target.closest('.bh13-node,.outline-row,.bh11-row')){e.preventDefault();e.stopImmediatePropagation()}
+},true);
+document.addEventListener('contextmenu',e=>{
+ if(dragHandle(e.target)&&candidate(e.target))e.preventDefault();
+},true);
 })();
