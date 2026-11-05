@@ -1,6 +1,6 @@
 /* BrainHome v1.0: network-first for files, offline fallback. Firebase data is never cached. */
-const CACHE='brainhome-static-v27';
-const FILES=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./app.js','./cloud.js'];
+const CACHE='brainhome-static-v28';
+const FILES=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./app.js','./study.js','./cloud.js'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(async cache=>{for(const file of FILES){try{await cache.add(file)}catch(e){console.warn('Datei nicht vorgehalten:',file,e)}}}).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',event=>{event.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))),self.clients.claim()]))});
 self.addEventListener('fetch',event=>{const req=event.request;if(req.method!=='GET'||new URL(req.url).origin!==self.location.origin)return;if(new URL(req.url).pathname.endsWith('/firebase-config.js'))return;event.respondWith(fetch(req).then(response=>{if(response.ok){const cloned=response.clone();caches.open(CACHE).then(cache=>cache.put(req,cloned)).catch(()=>{})}return response}).catch(async()=>{const cached=await caches.match(req);if(cached)return cached;if(req.mode==='navigate'){return (await caches.match('./index.html'))||Response.error()}return Response.error()}))});

@@ -1,47 +1,48 @@
-# BrainHome v2.7 – Studienstiftung, Gutscheine, Baumgesten & Statistik
+# BrainHome v2.8 — Studienbibliothek & Uni-Wiederholung
 
 ## Installation
 
-1. **Zuerst in BrainHome ein JSON-Backup exportieren.** Die bisherige v2.6-ZIP ebenfalls aufbewahren.
-2. In deinem GitHub-Repository nur diese drei Dateien ersetzen:
-   - `index.html`
-   - `app.js`
-   - `sw.js`
-3. **Nicht ersetzen oder löschen:** `cloud.js`, `firebase-config.js`, `firestore.rules`, `manifest.webmanifest` sowie die App-Icons. Diese Dateien sind deshalb nicht im Update-Paket.
-4. Nach dem Upload BrainHome neu laden (gegebenenfalls PWA komplett schließen und neu öffnen).
+1. **Zuerst** in der aktuellen BrainHome-Version ein JSON-Backup exportieren. Zusätzlich die funktionierende v2.7-ZIP aufbewahren.
+2. Diese **vier App-Dateien** ins Stammverzeichnis deines bisherigen GitHub-Repositorys hochladen bzw. ersetzen:
+   - `index.html` (ersetzen)
+   - `app.js` (ersetzen)
+   - `study.js` (**neu hinzufügen**)
+   - `sw.js` (ersetzen)
+3. **Unbedingt beibehalten:** die bereits funktionierenden `cloud.js`, `firebase-config.js`, `firestore.rules`, `manifest.webmanifest` und die beiden Icons. Nicht überschreiben und keine Browserdaten löschen.
+4. Nach dem GitHub-Pages-Deployment BrainHome schließen, neu öffnen und den Wissensbaum antippen. Bei veralteter Oberfläche gegebenenfalls die PWA einmal ganz schließen und neu starten.
 
-## Geänderte Funktionen
+## Neu
 
-### Studienstiftung
-- Die Kategorien „Projekte“ und „Termine“ aus v2.6 werden **nicht mehr im Aufgabenbaum angezeigt**. Sie bleiben intern als Datencontainer erhalten, damit alte Projekte und Termine ohne Verlust weiterverwendet werden.
-- Unter dem Baum erscheinen in dieser Reihenfolge: Notizen, Projekte, Termine.
-- Notizen im neuen Textfeld lassen sich direkt speichern.
-- Projekte lassen sich als eigenständige Liste unter dem Baum anlegen und als Unterprojekte verschachteln. Vorhandene Unterpunkte aus dem früheren „Projekte“-Ordner bleiben sichtbar.
-- Termine sind weiterhin mit Datum, optional Uhrzeit und Notizen bearbeitbar und werden nicht als normale Aufgaben gezählt.
+### Wissensbibliothek
+- Oberste Wissensbereiche erscheinen als **getrennte, farbige Karten**. Die Gesamtübersicht zeigt nur Bereichsnamen und Dokumentanzahl, **keinen Vorschautext**.
+- Bereich öffnen → Unterbereiche (Ordner) öffnen → übersichtliche Dokumenttitel öffnen → Volltext mit klickbarem Inhaltsverzeichnis.
+- Eigenen Bereich hinzufügen, umbenennen und Farbe ändern; Unterbereiche beliebig verschachteln; Kategorien per Langdruck umsortieren.
+- Alte `knowledgeNodes` werden nicht gelöscht. Bisherige Wissensnotizen bleiben als lesbare Dokumente in ihren vorhandenen Unterbereichen sichtbar.
+- Navigation innerhalb der Bibliothek (geöffneter Bereich und geöffnetes Dokument) bleibt nach einem Neuladen erhalten.
 
-### Finanzen
-- Im vorhandenen Finanz-Bereich unter Privat gibt es „Offene Gutscheine“.
-- Je Gutschein: Name, optionaler Geldwert, Gültigkeitsdatum, Code und Notizen; einlösbar bzw. als eingelöst markierbar.
-- Gutscheine zählen nicht zu laufenden Einnahmen oder Ausgaben.
-- Die neue `vouchers`-Liste ist in JSON-Export, Import, Undo-Verlauf und Cloud-Nutzdaten integriert.
+### Universität
+- Unter **Uni** werden die Fächer Innere Medizin, Pharmakologie, Mikrobiologie, Anatomie, Biochemie und Physiologie ergänzt, soweit sie nicht schon vorhanden sind.
+- Dokument direkt schreiben oder `.md`, `.markdown`, `.txt`, `.docx` hochladen. Word-DOCX wird lokal im Browser **in Text mit Überschriften umgewandelt**; das originale DOCX wird nicht separat gespeichert. Ein Word-Dokument kann Formatierungen verlieren.
+- Markdown-Überschriften wie `## Diagnostik` ergeben Leser-Abschnitte und Lernkarten. Ohne Überschriften entsteht eine einzelne Lernkarte für das gesamte Dokument.
+- **Nur unter Uni**: verdeckte Lernkarten, Antwort anzeigen und selbst bewerten mit **Nochmal / Schwer / Gut / Einfach**. Die nächsten Wiederholungstermine werden nach einem vereinfachten Spaced-Repetition-Verfahren berechnet. Maximal fünf bislang neue Abschnitte pro Tag plus fällige Wiederholungen.
+- Wissen aus anderen Bereichen wird **nicht** für die Wiederholung verwendet. Eine spätere Ausdehnung auf „Sprachen“ ist noch nicht eingebaut.
 
-### Aufgabenbaum
-- **Lange drücken und ziehen** auf dem Namen eines Baumknotens: über einem anderen Knoten ablegen.
-- Über einer Kategorie: in diese Kategorie verschieben. Über einer Aufgabe: unmittelbar vor ihr einsortieren. Zwei Kategorien derselben Ebene lassen sich ebenfalls umordnen.
-- Funktioniert in der kleinen und der Vollbild-Baumansicht sowie per Touch/Maus. Klicks auf die kleinen Bearbeiten-/Abhaken-Buttons werden davon nicht beeinflusst.
-- Die alte konkurrierende Langdruck-Geste wurde abgeschaltet. Alte Baumknoten-IDs und Unterpunkte bleiben erhalten.
-- Manuell sortierte Geschwister verwenden die selbst gewählte Reihenfolge; andere Baumzweige behalten ihre bisherige automatische Prioritätssortierung.
+### Datei-Workflow
+1. Vorlesungsnotizen schreiben.
+2. ChatGPT aus den Notizen (und auf expliziten Wunsch mit externer Recherche) eine gut strukturierte Zusammenfassung erstellen lassen; Überschriften in Markdown mit `##` nutzen.
+3. Den fertigen Text als `.md`, `.txt` oder `.docx` speichern.
+4. BrainHome → Wissensbaum → Uni → Fach → **⇧ Datei hochladen**.
+5. Den Text in BrainHome lesen und über **Uni → Lernen** wiederholen.
 
-### Statistik
-- Zeiträume: **Woche, Monat, Jahr** (statt Tag/Stunden).
-- Nur erledigte Aufgaben sind zunächst sichtbar; hinzugefügte Aufgaben lassen sich als **schwarze** Balken zuschalten.
-- Kein Farbwähler mehr.
+## Speichern und Einschränkungen
+- `knowledgeDocuments` ist ein **zusätzliches** Feld im bestehenden JSON-Export, in der lokalen Speicherung und im bestehenden Cloud-Payload. Alte Sicherungen bleiben lesbar; die Cloud-Dateien wurden nicht verändert.
+- Deine derzeitige Cloud-Synchronisierung hat weiterhin die technische **Grenze von 850.000 Byte für alle BrainHome-Daten zusammen**. BrainHome v2.8 begrenzt einzelne Textdokumente auf ca. 160 KB und warnt vor Erreichen der Gesamtgrenze (~760 KB). Für eine wirklich große Vorlesungsbibliothek braucht es als nächsten Schritt eine **separate Firestore-Dokumentspeicherung**. Bis dahin bitte regelmäßig JSON-Backups exportieren.
+- **PDF-Dateien werden noch nicht importiert.** Bitte den Text vorerst als Markdown, TXT oder DOCX exportieren. Bilder, eingebettete Diagramme und Original-DOCX-Dateien werden nicht gespeichert.
+- Die ChatGPT-Zusammenfassung wird nicht automatisch direkt in BrainHome erzeugt; du lädst sie selbst hoch.
+- Dies ist ein Anki-ähnliches, vereinfachtes Wiederholungssystem, **keine Kompatibilität mit der Anki-App und keine exakte FSRS-Implementierung**.
+- Der persönliche Firebase-Livebetrieb und die Installation über GitHub Pages konnten hier nicht mit deinem echten Konto getestet werden.
 
-## Datenschutz und Kompatibilität
-Die vorhandene Firebase-Synchronisierung wird nicht verändert. Die Datenstruktur wird nur um das optionale `vouchers`-Feld und um manuelle Sortiernummern bei aktiv verschobenen Knoten erweitert. Keine Datenbank wird beim Installieren automatisch geleert.
-
-## Prüfung
-- `node --check app.js`: erfolgreich.
-- Lokale Chromium-Tests mit eingebettetem App-Skript: Studienstiftungsnotizen, Projektanlage, Terminanlage, Statistik (12 Monate), Gutscheinanlage und JSON-Export: erfolgreich.
-- Drag-and-drop im normalen und im großen Baum mit Maus: erfolgreich; Touch-Geste in einer simulierten mobilen Chromium-Umgebung: erfolgreich.
-- Live-Synchronisierung mit deinem persönlichen Firebase-Konto und Installation über GitHub Pages sind hier nicht getestet worden.
+## Technische Tests
+- `node --check app.js`, `node --check study.js`: erfolgreich.
+- Chromium-Test mit eingebetteter, lokal bereitgestellter App (kein Live-Firebase): Wissensübersicht, sechs Uni-Fächer, Dokument erstellen, Markdown-Inhaltsverzeichnis, dokumentierte Wiederholung, Wiederholungstermin speichern, Route bei Neuinitialisierung wiederherstellen.
+- Dateiimport `.md` und `.docx` (Testdatei), Legacy-Wissenseinträge, Wissensbaum-Umordnung via langem Mausdruck und mobile Darstellung in Chromium: erfolgreich.

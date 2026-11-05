@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','taskEvents','vouchers'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','knowledgeDocuments','taskEvents','vouchers'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -1449,7 +1449,7 @@ document.addEventListener('click',e=>{if(Date.now()<suppressEditUntil&&e.target.
 const dragStyle=document.createElement('style');dragStyle.textContent='.bh19-name{touch-action:none;user-select:none;-webkit-user-select:none}.bh19-line.bh19-dragging{opacity:.55;outline:2px dashed #6b937a;border-radius:8px}.bh19-line.bh19-drop-target{background:#b3d6ba66;outline:2px solid #5b8969;border-radius:8px}';document.head.append(dragStyle);
 // Seed only when there is no knowledge tree, without touching existing task nodes.
 removeOldInterestRoot();
-if(!nodes().length){for(const name of initialNames)nodes().push({id:newid(),parent:null,name,body:'',review:false,createdAt:new Date().toISOString(),order:nodes().length});save()}
+// Knowledge roots are created on the first visit, not during cloud initialization. This avoids making a fresh device look populated before remote restore.
 // Existing trees can have custom order; default Uni first for the initial migration only.
 if(!localStorage.getItem('brainhome-v19-order-migrated')){const roots=children(null),uni=roots.find(n=>n.name==='Uni');if(uni){const reordered=[uni,...roots.filter(n=>n.id!==uni.id)];reordered.forEach((n,i)=>n.order=i);save()}localStorage.setItem('brainhome-v19-order-migrated','1')}
 })();
