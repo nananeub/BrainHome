@@ -2141,3 +2141,328 @@ document.addEventListener('contextmenu',e=>{
  if(dragHandle(e.target)&&candidate(e.target))e.preventDefault();
 },true);
 })();
+
+
+/* BrainHome 2.9 – Categories are branches; tasks are lightweight list rows.
+ * Task steps are included in the existing nodes payload and taskEvents timeline.
+ * No new Firebase collections or storage keys required.
+ */
+(() => {
+'use strict';
+const app=document.getElementById('app');
+const modal=document.getElementById('bh11TreeDialog');
+const safe=s=>esc(s);
+const newID=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():`step-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const isPlain=n=>n && !isCategory(n) && !isSpecialTreeNode(n) && !n.appointment;
+const categoryOf=n=>{
+ let current=n,seen=new Set();
+ while(current&&current.parent!==null&&current.parent!=='inbox'&&!seen.has(current.id)){
+  seen.add(current.id);current=get(current.parent);
+  if(current&&isCategory(current))return current;
+ }
+ return null;
+};
+function hiddenAncestor(n){
+ let p=n,seen=new Set();
+ while(p&&p.parent&&p.parent!=='inbox'&&!seen.has(p.id)){
+  seen.add(p.id);p=get(p.parent);
+  if(p&&isSpecialTreeNode(p))return true;
+ }
+ return false;
+}
+function normalizeTasks(){
+ let changed=false;
+ for(const n of data.nodes){
+  if(!n||n.parent===null||n.parent==='inbox'||isSpecialTreeNode(n)||hiddenAncestor(n)||n.appointment)continue;
+  const parent=get(n.parent);
+  if(!parent||isCategory(parent))continue;
+  const category=categoryOf(n);
+  if(!category||category.id===n.id)continue;
+  n.parent=category.id;
+  changed=true;
+ }
+ if(changed)save();
+ return changed;
+}
+// Existing nested tasks are kept as individual records, not converted/deleted.
+// Run once for each restored snapshot as well, preserving the same IDs and completion history.
+const oldApply=window.BH10?.applyData;
+if(oldApply)window.BH10.applyData=function(...args){const result=oldApply(...args);normalizeTasks();render();return result};
+
+let quickId=null,openTaskId=null;
+const priorityRank=n=>({sofort:0,wichtig:1,spaeter:2,warten:3,'':4})[normalizePriority(n.priority)]??4;
+function scoped(root){
+ const cats=new Map(),tasks=new Map(),indexes=new Map(data.nodes.map((n,i)=>[n.id,i]));
+ function append(map,id,n){if(!map.has(id))map.set(id,[]);map.get(id).push(n)}
+ for(const n of data.nodes){
+  if(n.id===root.id||rootOf(n)?.id!==root.id||isSpecialTreeNode(n)||hiddenAncestor(n)||n.appointment)continue;
+  const category=categoryOf(n)||root;
+  if(n.id===category.id)continue;
+  if(isCategory(n))append(cats,category.id,n);
+  else if(isPlain(n))append(tasks,category.id,n);
+ }
+ const sort=(a,b)=>{
+  if(Number.isFinite(a.bh27Order)&&Number.isFinite(b.bh27Order))return a.bh27Order-b.bh27Order;
+  return (indexes.get(a.id)||0)-(indexes.get(b.id)||0);
+ };
+ for(const list of cats.values())list.sort(sort);
+ for(const list of tasks.values())list.sort((a,b)=>Number(!!a.done)-Number(!!b.done)||priorityRank(a)-priorityRank(b)||sort(a,b));
+ return {cats,tasks};
+}
+function taskHTML(n){
+ const steps=Array.isArray(n.steps)?n.steps:[],done=steps.filter(s=>s.done).length;
+ const chip=steps.length?`<span class="bh29-step-count">${done}/${steps.length}</span>`:'';
+ const pri=normalizePriority(n.priority);
+ return `<div class="bh29-task" data-bh29-task="${safe(n.id)}" data-priority="${safe(pri)}" data-done="${!!n.done}">
+  ${isTask(n)?`<button class="bh29-check" type="button" data-action="done" data-id="${safe(n.id)}" aria-label="${safe(n.name)} ${n.done?'wieder öffnen':'erledigen'}">${n.done?'↺':'✓'}</button>`:'<span class="bh29-bullet">·</span>'}
+  <button type="button" class="bh29-task-name" data-bh29-open-task="${safe(n.id)}" title="Aufgabe und Schritte öffnen">${safe(n.name)}</button>
+  ${chip}${pri&&pri!=='spaeter'?`<span class="bh29-priority" data-priority="${safe(pri)}">${safe(priorityLabel[pri]||pri)}</span>`:''}
+  <button class="bh29-row-action" type="button" data-action="edit" data-id="${safe(n.id)}" aria-label="Aufgabe bearbeiten">✎</button>
+ </div>`;
+}
+function categoryHTML(n,lists,seen=new Set(),depth=0){
+ if(depth>30||seen.has(n.id))return '';
+ const path=new Set(seen);path.add(n.id);
+ const cats=lists.cats.get(n.id)||[],tasks=lists.tasks.get(n.id)||[];
+ const open=!n.collapsed;
+ const quick=quickId===n.id?`<form class="bh29-quick" data-bh29-quick-form="${safe(n.id)}"><input aria-label="Neue Aufgabe" maxlength="250" placeholder="Aufgabe eingeben …" required><button type="submit">Hinzufügen</button><button type="button" data-bh29-cancel>✕</button></form>`:'';
+ return `<section class="bh29-category ${depth===0?'bh29-root':''}" data-bh29-category="${safe(n.id)}">
+  <div class="bh29-category-top">
+   <button class="bh29-fold" type="button" data-action="toggle" data-id="${safe(n.id)}" aria-label="Kategorie ${open?'einklappen':'aufklappen'}">${open?'⌄':'›'}</button>
+   <button class="bh29-category-title" type="button" data-bh29-quick-toggle="${safe(n.id)}" title="Aufgabe direkt in diese Kategorie eintragen">${depth===0?safe((n.emoji||'🌿')+' '):'▦ '}${safe(n.name)}</button>
+   <span class="bh29-category-count">${tasks.filter(x=>!x.done).length||''}</span>
+   <button class="bh29-row-action" type="button" data-bh29-quick-toggle="${safe(n.id)}" title="Aufgabe hinzufügen" aria-label="Aufgabe hinzufügen">＋</button>
+   <button class="bh29-row-action" type="button" data-bh29-new-category="${safe(n.id)}" title="Unterkategorie hinzufügen" aria-label="Unterkategorie hinzufügen">▣</button>
+   <button class="bh29-row-action" type="button" data-action="edit" data-id="${safe(n.id)}" title="Kategorie bearbeiten" aria-label="Kategorie bearbeiten">✎</button>
+  </div>
+  ${open?`<div class="bh29-content">${quick}<div class="bh29-task-list">${tasks.filter(x=>showDone||!isTask(x)||!x.done).map(taskHTML).join('')}</div>${cats.map(c=>categoryHTML(c,lists,path,depth+1)).join('')}</div>`:''}
+ </section>`;
+}
+function treeHTML(root){return `<div class="bh29-outline" data-bh29-outline>${categoryHTML(root,scoped(root))}</div>`}
+function repaint(){
+ if(data.tab!=='tree')return;
+ const root=get(data.active);if(!root)return;
+ const scroller=app.querySelector('.bh13-graph-scroll'),tree=scroller?.querySelector('.bh13-tree');
+ if(tree){
+  const x=scroller.scrollLeft,y=scroller.scrollTop;
+  tree.innerHTML=treeHTML(root);tree.classList.add('bh29-tree');
+  scroller.classList.add('bh29-scroller');
+  scroller.scrollLeft=x;scroller.scrollTop=y;
+  window.BH15?.applyZoom?.('preview');
+ }
+ const controls=app.querySelector('.bh13-graph-controls span');if(controls)controls.textContent='Kategorien öffnen · Aufgaben direkt darunter eintragen';
+ const toolbar=app.querySelector('.toolbar');if(toolbar){
+  const view=toolbar.querySelector('[data-action="view"]');if(view)view.textContent='Kategorien & Aufgaben';
+  toolbar.querySelectorAll('[data-action="less"],[data-action="deeper"]').forEach(b=>b.remove());
+  toolbar.querySelectorAll('.muted').forEach(el=>{if(/Ebenen/.test(el.textContent))el.remove()});
+ }
+ if(modal?.open){
+  const full=document.getElementById('bh11TreeContent');
+  const scroll=document.getElementById('bh11TreeScroll');
+  if(full&&scroll){const x=scroll.scrollLeft,y=scroll.scrollTop;full.classList.add('bh29-full');full.innerHTML=treeHTML(root);scroll.scrollLeft=x;scroll.scrollTop=y;window.BH15?.applyZoom?.('full')}
+ }
+}
+const prevRender=render;
+render=function(...args){prevRender(...args);repaint();if(openTaskId&&stepsDialog.open)drawSteps()};
+// When someone enters a category in the existing editor, keep the parent selector
+// clean: only categories (plus Inbox) are legal destinations for a task.
+const prevEditor=openEditor;
+openEditor=function(id,parent){
+ const proposed=parent&&get(parent),normalized=proposed&&!isCategory(proposed)?categoryOf(proposed):proposed;
+ prevEditor(id,normalized?.id||parent);
+ const n=id?get(id):null;
+ const select=document.getElementById('parent');
+ const selected=(n?.parent&&isCategory(get(n.parent))?n.parent:categoryOf(n)?.id)||normalized?.id||(parent==='inbox'?'inbox':null);
+ const opts=[`<option value="inbox">Inbox · Eingang</option>`];
+ for(const category of data.nodes.filter(x=>isCategory(x)&&x.id!==id&&!descendants(id||'').includes(x.id)&&!isSpecialTreeNode(x)&&!hiddenAncestor(x)))opts.push(`<option value="${safe(category.id)}">${safe(path(category))}</option>`);
+ select.innerHTML=opts.join('');
+ select.value=selected||'inbox';
+ if(!id&&normalized?.id){document.getElementById('kind').value='task';document.getElementById('checkable').checked=true;updateEditorFields()}
+ document.querySelector('label[for="parent"]').textContent='Kategorie';
+};
+// The old drag handler is limited to legacy tree elements. We keep the same
+// simple long-press affordance for task rows, with category-only reparenting.
+const HOLD_MS=480;
+let hold=null,drag=null,suppressUntil=0;
+function clearHold(){if(hold?.timer)clearTimeout(hold.timer);hold=null}
+function dragAt(x,y){
+ const element=document.elementFromPoint(x,y);
+ const task=element?.closest?.('.bh29-task'),cat=element?.closest?.('.bh29-category-top');
+ return task?{id:task.dataset.bh29Task,isTask:true,el:task}:cat?{id:cat.parentElement.dataset.bh29Category,isTask:false,el:cat}:null;
+}
+function started(e,touch){
+ const origin=e.target.closest?.('.bh29-task-name,.bh29-category-title');if(!origin)return;
+ const p=touch?e.touches[0]:e;
+ if(!touch&&(e.button!==0||e.pointerType==='touch'))return;
+ if(!p||drag)return;
+ const isCat=origin.hasAttribute('data-bh29-quick-toggle');
+ const id=isCat?origin.dataset.bh29QuickToggle:origin.dataset.bh29OpenTask;
+ if(isCat&&get(id)?.parent===null)return;
+ const state={id,isCat,touch,x:p.clientX,y:p.clientY,px:p.clientX,py:p.clientY};
+ state.timer=setTimeout(()=>{
+  if(hold!==state)return;hold=null;
+  drag={...state,moved:false};
+  drag.ghost=document.createElement('div');drag.ghost.className='bh29-ghost';drag.ghost.textContent=get(id)?.name||'Aufgabe';document.body.append(drag.ghost);
+  drag.ghost.style.left=state.px+'px';drag.ghost.style.top=state.py+'px';
+  document.body.classList.add('bh29-dragging');
+  navigator.vibrate?.(18);
+ },HOLD_MS);
+ hold=state;
+}
+function moved(e,touch){
+ const p=touch?e.touches[0]:e;if(!p)return;
+ if(hold&&hold.touch===touch){hold.px=p.clientX;hold.py=p.clientY;if(Math.hypot(hold.x-p.clientX,hold.y-p.clientY)>13)clearHold()}
+ if(!drag||drag.touch!==touch)return;
+ if(e.cancelable)e.preventDefault();
+ drag.moved ||= Math.hypot(drag.x-p.clientX,drag.y-p.clientY)>10;
+ drag.ghost.style.left=p.clientX+'px';drag.ghost.style.top=p.clientY+'px';
+ document.querySelectorAll('.bh29-drop').forEach(el=>el.classList.remove('bh29-drop'));
+ const hit=dragAt(p.clientX,p.clientY);hit?.el?.classList.add('bh29-drop');
+}
+function ended(e,touch){
+ if(hold?.touch===touch)clearHold();
+ if(!drag||drag.touch!==touch)return;
+ const state=drag,p=touch?e.changedTouches[0]:e,hit=p?dragAt(p.clientX,p.clientY):null;
+ drag=null;state.ghost.remove();document.body.classList.remove('bh29-dragging');
+ document.querySelectorAll('.bh29-drop').forEach(el=>el.classList.remove('bh29-drop'));
+ suppressUntil=Date.now()+700;
+ if(!state.moved||!hit||hit.id===state.id)return;
+ const source=get(state.id),target=get(hit.id);if(!source||!target||rootOf(source)?.id!==rootOf(target)?.id)return;
+ const category=isCategory(target)?target:categoryOf(target);
+ if(!category||descendants(source.id).includes(category.id))return;
+ if(state.isCat){
+  // Between sibling categories: reorder. Across branches: move into category.
+  const sameLevel=source.parent===category.parent;
+  const newParent=sameLevel?category.parent:category.id;
+  if(!newParent||newParent===source.id||descendants(source.id).includes(newParent))return;
+  source.parent=newParent;
+  const siblings=data.nodes.filter(n=>n.parent===newParent&&isCategory(n)&&n.id!==source.id);
+  if(sameLevel){const index=siblings.findIndex(n=>n.id===category.id);siblings.splice(index<0?siblings.length:index,0,source)}
+  else siblings.push(source);
+  siblings.forEach((n,i)=>n.bh27Order=i);
+  save();render();notice('Kategorie verschoben');return;
+ }
+ source.parent=category.id;
+ const siblings=data.nodes.filter(x=>x.parent===category.id&&x.id!==source.id&&!isCategory(x));
+ if(!isCategory(target)){
+  const index=siblings.findIndex(x=>x.id===target.id);
+  siblings.splice(index<0?siblings.length:index,0,source);
+ }else siblings.push(source);
+ siblings.forEach((x,i)=>x.bh27Order=i);
+ save();render();notice('Aufgabe einsortiert');
+}
+document.addEventListener('touchstart',e=>started(e,true),{capture:true,passive:true});
+document.addEventListener('pointerdown',e=>started(e,false),true);
+window.addEventListener('touchmove',e=>moved(e,true),{capture:true,passive:false});
+window.addEventListener('pointermove',e=>{if(e.pointerType!=='touch')moved(e,false)},true);
+window.addEventListener('touchend',e=>ended(e,true),true);
+window.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')ended(e,false)},true);
+window.addEventListener('touchcancel',()=>{clearHold();drag?.ghost?.remove();drag=null},true);
+window.addEventListener('pointercancel',()=>{clearHold();drag?.ghost?.remove();drag=null},true);
+document.addEventListener('click',e=>{if(Date.now()<suppressUntil&&e.target.closest('.bh29-task,.bh29-category')){e.preventDefault();e.stopImmediatePropagation()}},true);
+
+// Open the full view with the same list layout. Legacy graph openers would
+// otherwise replace it with the old branching diagram after the render hook.
+window.addEventListener('click',e=>{
+ const button=e.target.closest?.('[data-action="bh13-open-tree"],[data-action="bh11-open-tree"]');
+ if(!button||data.tab!=='tree')return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(!modal.open)modal.showModal();
+ const root=get(data.active),full=document.getElementById('bh11TreeContent');
+ if(!root||!full)return;
+ document.getElementById('bh11TreeTitle').textContent=root.name;
+ full.classList.add('bh29-full');full.innerHTML=treeHTML(root);
+ const scroll=document.getElementById('bh11TreeScroll');scroll.classList.add('bh13-full-scroll');
+ scroll.scrollLeft=0;scroll.scrollTop=0;
+ window.BH15?.applyZoom?.('full');
+},true);
+
+// Preserve jumping from "Alle Aufgaben" to the matching row in the new tree.
+window.addEventListener('click',e=>{
+ const control=e.target.closest?.('[data-action="bh15-task-jump"]');if(!control)return;
+ const node=get(control.dataset.id),root=node&&rootOf(node);
+ if(!node||!root||node.privateSection||hiddenAncestor(node))return;
+ e.preventDefault();e.stopImmediatePropagation();
+ let p=categoryOf(node);while(p&&p.parent){p.collapsed=false;p=categoryOf(p)}
+ if(node.done)showDone=true;
+ openProject(root.id);
+ if(!modal.open)modal.showModal();
+ const full=document.getElementById('bh11TreeContent');full.classList.add('bh29-full');full.innerHTML=treeHTML(root);
+ const item=[...full.querySelectorAll('.bh29-task')].find(el=>el.dataset.bh29Task===node.id);
+ if(item){item.classList.add('bh29-drop');item.scrollIntoView({block:'center',behavior:'instant'})}
+ window.BH15?.applyZoom?.('full');
+},true);
+
+const stepsDialog=document.createElement('dialog');stepsDialog.className='bh29-step-dialog';stepsDialog.id='bh29StepsDialog';
+stepsDialog.innerHTML=`<div class="bh29-step-head"><div><small>AUFGABE</small><h2 id="bh29StepTitle"></h2></div><button type="button" data-bh29-step-close class="btn">✕</button></div><div id="bh29StepsContent"></div><form id="bh29StepForm"><input maxlength="250" placeholder="Nächsten Schritt hinzufügen …" aria-label="Neuer Schritt" required><button type="submit" class="btn primary">＋</button></form><p class="bh29-step-foot">Jeder abgeschlossene Schritt zählt einzeln in deiner Statistik. Die Aufgabe bleibt offen, bis du sie selbst abhakst.</p>`;
+document.body.append(stepsDialog);
+const steps=n=>Array.isArray(n.steps)?n.steps:(n.steps=[]);
+function drawSteps(){
+ const n=get(openTaskId);if(!n){stepsDialog.close();openTaskId=null;return}
+ document.getElementById('bh29StepTitle').textContent=n.name;
+ const items=steps(n),completed=items.filter(x=>x.done).length;
+ document.getElementById('bh29StepsContent').innerHTML=`<div class="bh29-step-progress">${completed} von ${items.length} Schritten erledigt</div><div class="bh29-step-list">${items.map(s=>`<div class="bh29-step-row ${s.done?'is-done':''}"><input type="checkbox" data-bh29-step-check="${safe(s.id)}" ${s.done?'checked':''} aria-label="${safe(s.name)} erledigt"><span>${safe(s.name)}</span><button type="button" data-bh29-step-edit="${safe(s.id)}" title="Umbenennen">✎</button><button type="button" data-bh29-step-delete="${safe(s.id)}" title="Schritt entfernen">×</button></div>`).join('')||'<p class="bh29-step-empty">Noch keine Schritte. Du kannst gleich den ersten hinzufügen.</p>'}</div>`;
+}
+function openSteps(id){const n=get(id);if(!n)return;openTaskId=id;drawSteps();if(!stepsDialog.open)stepsDialog.showModal()}
+stepsDialog.addEventListener('close',()=>openTaskId=null);
+const stepEvent=(step,type)=>({id:newID(),type,taskId:`step:${step.id}`,stepId:step.id,parentId:openTaskId,name:`${get(openTaskId)?.name||'Aufgabe'} · ${step.name}`,at:new Date().toISOString(),source:'step'});
+function saveSteps(){save();render();drawSteps()}
+stepsDialog.querySelector('#bh29StepForm').addEventListener('submit',e=>{
+ e.preventDefault();const input=e.target.querySelector('input'),name=input.value.trim(),n=get(openTaskId);
+ if(!name||!n)return;
+ const item={id:newID(),name,done:false,createdAt:new Date().toISOString()};steps(n).push(item);
+ if(!Array.isArray(data.taskEvents))data.taskEvents=[];
+ data.taskEvents.push(stepEvent(item,'created'));
+ input.value='';saveSteps();input.focus();
+});
+stepsDialog.addEventListener('change',e=>{
+ const check=e.target.closest('[data-bh29-step-check]');if(!check)return;
+ const n=get(openTaskId),item=steps(n).find(x=>x.id===check.dataset.bh29StepCheck);if(!item||item.done===check.checked)return;
+ item.done=check.checked;item.completedAt=check.checked?new Date().toISOString():null;
+ if(check.checked){if(!Array.isArray(data.taskEvents))data.taskEvents=[];data.taskEvents.push(stepEvent(item,'completed'))}
+ saveSteps();
+});
+stepsDialog.addEventListener('click',e=>{
+ if(e.target.closest('[data-bh29-step-close]')){stepsDialog.close();return}
+ const edit=e.target.closest('[data-bh29-step-edit]'),del=e.target.closest('[data-bh29-step-delete]');
+ if(!edit&&!del)return;
+ const n=get(openTaskId),id=edit?.dataset.bh29StepEdit||del?.dataset.bh29StepDelete,item=steps(n).find(x=>x.id===id);if(!item)return;
+ if(edit){const name=prompt('Schritt umbenennen',item.name);if(name?.trim()){item.name=name.trim();saveSteps()}}
+ if(del&&confirm('Diesen Schritt entfernen? Bereits erfasste Statistik-Ereignisse bleiben erhalten.')){n.steps=steps(n).filter(x=>x.id!==id);saveSteps()}
+});
+// Capture UI actions so old delegated listeners don't turn a quick category click
+// into a nested task or open a legacy task editor.
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-bh29-open-task],[data-bh29-quick-toggle],[data-bh29-new-category],[data-bh29-cancel]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(b.hasAttribute('data-bh29-open-task')){openSteps(b.dataset.bh29OpenTask);return}
+ if(b.hasAttribute('data-bh29-new-category')){const id=b.dataset.bh29NewCategory;openEditor(null,id);document.getElementById('kind').value='category';document.getElementById('checkable').checked=false;updateEditorFields();return}
+ if(b.hasAttribute('data-bh29-quick-toggle')){quickId=quickId===b.dataset.bh29QuickToggle?null:b.dataset.bh29QuickToggle;const insideFull=!!b.closest('#bh11TreeDialog');render();(insideFull?modal:app).querySelector('.bh29-quick input')?.focus();return}
+ if(b.hasAttribute('data-bh29-cancel')){quickId=null;render()}
+},true);
+document.addEventListener('submit',e=>{
+ const form=e.target.closest('[data-bh29-quick-form]');if(!form)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ const parent=get(form.dataset.bh29QuickForm),name=form.querySelector('input').value.trim();if(!name||!parent||!isCategory(parent))return;
+ data.nodes.push({id:newID(),parent:parent.id,name,kind:'task',checkable:true,priority:'',notes:'',due:'',collapsed:false,done:false,userCreated:true});
+ quickId=parent.id;const insideFull=!!form.closest('#bh11TreeDialog');save();render();(insideFull?modal:app).querySelector('.bh29-quick input')?.focus();notice('Aufgabe hinzugefügt');
+},true);
+// Make sure even the legacy editor cannot save a task under another task.
+document.getElementById('editForm').addEventListener('submit',e=>{
+ const input=document.getElementById('parent'),parent=get(input.value),kind=document.getElementById('kind').value;
+ if(['task','list','category'].includes(kind)&&parent&&!isCategory(parent))input.value=categoryOf(parent)?.id||'inbox';
+},true);
+// Steps appear in the visible Erledigt page as individual historical outcomes.
+function addStepHistory(){
+ if(data.tab!=='history')return;
+ const entries=(data.taskEvents||[]).filter(ev=>ev.type==='completed'&&ev.stepId&&ev.at).slice().reverse();
+ if(!entries.length)return;
+ const host=app.querySelector('.bh13-history');if(!host)return;
+ const section=document.createElement('section');section.className='bh29-step-history';
+ section.innerHTML=`<h3>✓ Abgeschlossene Schritte</h3>${entries.map(x=>`<div class="bh29-step-history-row"><span>✓</span><span>${safe(x.name)}</span><small>${safe(new Date(x.at).toLocaleDateString('de-DE'))}</small></div>`).join('')}`;
+ host.append(section);
+}
+const renderWithHistory=render;
+render=function(...args){renderWithHistory(...args);addStepHistory()};
+normalizeTasks();render();
+})();
