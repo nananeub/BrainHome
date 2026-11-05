@@ -27,7 +27,49 @@ let route={rootId:null,folderId:null,docId:null,mode:'library',filter:''};
 try{route={...route,...JSON.parse(localStorage.getItem(K)||'{}')}}catch{}
 let studyCard=null,answerOpen=false,studyFilter=null,reviewMessage='';
 const saveRoute=()=>{try{localStorage.setItem(K,JSON.stringify(route))}catch{}};
-function changeRoute(changes){route={...route,...changes};saveRoute();render();window.scrollTo?.({top:0,behavior:'instant'})}
+const libraryRoute=()=>({rootId:null,folderId:null,docId:null,mode:'library',filter:''});
+const currentHistory=()=>({bhLibraryRoute:{...route}});
+let libraryHistoryReady=false;
+function initLibraryHistory(){
+ if(libraryHistoryReady)return;
+ libraryHistoryReady=true;
+ // Build the complete breadcrumb history when the PWA is opened directly into
+ // an existing Uni folder/document after a browser reload. Every Android Back
+ // moves exactly one level and never exits the app from the first library step.
+ if(history.state?.bhLibraryRoute)return;
+ try{
+  history.replaceState({...history.state,bhLibraryLanding:true},'');
+  const path=[libraryRoute()];
+  if(route.rootId){
+   const roots=[];let f=node(route.folderId),seen=new Set();
+   while(f&&!seen.has(f.id)){seen.add(f.id);roots.unshift(f);f=f.parent?node(f.parent):null}
+   for(const n of roots)path.push({rootId:route.rootId,folderId:n.id,docId:null,mode:'folder',filter:''});
+   if(route.mode==='reader'&&route.docId)path.push({...route});
+   if(route.mode==='study')path.push({...route});
+  }
+  for(const item of path)history.pushState({bhLibraryRoute:item},'');
+ }catch{}
+}
+function changeRoute(changes,{push=true}={}){
+ const next={...route,...changes};
+ const changed=JSON.stringify({...next,filter:''})!==JSON.stringify({...route,filter:''});
+ if(data.tab==='knowledge'&&changed){
+  initLibraryHistory();
+  if(push)try{history.pushState({bhLibraryRoute:{...next}},'')}catch{}
+ }
+ route=next;saveRoute();render();window.scrollTo?.({top:0,behavior:'instant'});
+}
+function oneLevelUp(){
+ if(route.mode==='reader'){changeRoute({mode:'folder',docId:null});return}
+ if(route.mode==='study'){changeRoute({mode:'folder',rootId:uni()?.id||null,folderId:uni()?.id||null,docId:null});return}
+ if(route.mode==='folder'){
+  const current=node(route.folderId);
+  if(current?.parent){changeRoute({folderId:current.parent,docId:null,mode:'folder'});return}
+  changeRoute(libraryRoute());return;
+ }
+ if(route.mode==='library')setTab('home');
+}
+
 function ensureRoots(){if(!Array.isArray(data.knowledgeNodes))data.knowledgeNodes=[];if(!Array.isArray(data.knowledgeDocuments))data.knowledgeDocuments=[];
  if(nodes().length===0){for(const name of ['Uni','Weisheiten','Leipzig','Studienstiftung'])data.knowledgeNodes.push({id:newId(),parent:null,name,body:'',order:nodes().length,createdAt:new Date().toISOString(),color:DEFAULT_COLORS[name]});save()}}
 function ensureSubjects(){const u=uni();if(!u)return;let changed=false;for(const name of SUBJECTS){if(!subs(u.id).some(x=>x.name.toLocaleLowerCase('de')===name.toLocaleLowerCase('de'))){nodes().push({id:newId(),parent:u.id,name,order:subs(u.id).length,createdAt:new Date().toISOString()});changed=true}}if(changed)save()}
@@ -61,7 +103,7 @@ function rateCard(card,grade){const doc=resolveDoc(card.docId);if(!doc||!inUni(n
  studyCard=null;answerOpen=false;reviewMessage='';save();render()}
 function iconFor(name){if(name==='Uni')return '🎓';if(name==='Leipzig')return '🏛️';if(name==='Weisheiten')return '✨';if(name==='Studienstiftung')return '🤝';if(/medizin/i.test(name))return '🩺';if(/pharma/i.test(name))return '💊';if(/mikro/i.test(name))return '🦠';if(/anatomie/i.test(name))return '🫀';if(/biochem/i.test(name))return '🧬';if(/physio/i.test(name))return '🫁';return '📚'}
 function crumbs(){const arr=[];let n=node(route.folderId);while(n){arr.unshift(n);n=node(n.parent)}return arr}
-function actionBar(){return `<div class="kb28-crumb"><button data-kb-action="home" aria-label="Zur Gesamtübersicht">Wissensübersicht</button>${crumbs().map((n,i,a)=>`<span>›</span><button data-kb-action="openfolder" data-id="${safe(n.id)}" ${i===a.length-1?'aria-current="page"':''}>${safe(n.name)}</button>`).join('')}</div>`}
+function actionBar(){return `<div class="kb28-crumb"><button class="kb30-step-back" data-kb-action="backone" aria-label="Eine Ebene zurück">← Zurück</button><button data-kb-action="home" aria-label="Zur Gesamtübersicht">Wissensübersicht</button>${crumbs().map((n,i,a)=>`<span>›</span><button data-kb-action="openfolder" data-id="${safe(n.id)}" ${i===a.length-1?'aria-current="page"':''}>${safe(n.name)}</button>`).join('')}</div>`}
 function rootScreen(){const roots=subs(null);return `<section class="kb28"><div class="kb28-top"><div><div class="kb28-kicker">DEINE BIBLIOTHEK</div><h2>Wissen, das bleibt.</h2><p>Öffne einen Bereich, um seine Fächer und Dokumente zu sehen.</p></div><button class="btn" data-kb-action="newroot">＋ Bereich</button></div><div class="kb28-rootgrid">${roots.map(n=>`<article class="kb28-root" style="${styleOf(n)}" data-kb-category="${safe(n.id)}"><button class="kb28-root-main" data-kb-action="openroot" data-id="${safe(n.id)}"><span class="kb28-root-icon">${iconFor(n.name)}</span><strong>${safe(n.name)}</strong><span>${countDocs(n.id)} Dokumente <span aria-hidden="true">↗</span></span></button><button class="kb28-overflow" data-kb-action="editfolder" data-id="${safe(n.id)}" aria-label="${safe(n.name)} bearbeiten">⋯</button></article>`).join('')}</div><p class="kb28-foot">Die Texte bleiben in den Bereichen verborgen, bis du sie öffnest.</p></section>`}
 function folderCard(n){return `<article class="kb28-folder" data-kb-category="${safe(n.id)}"><button class="kb28-folder-main" data-kb-action="openfolder" data-id="${safe(n.id)}"><span class="kb28-folder-glyph">${iconFor(n.name)}</span><span class="kb28-folder-text"><strong>${safe(n.name)}</strong><small>${countDocs(n.id)} Dokumente</small></span><span class="kb28-chevron">›</span></button><button class="kb28-overflow" data-kb-action="editfolder" data-id="${safe(n.id)}" aria-label="Bereich bearbeiten">⋯</button></article>`}
 function docCard(d){const sections=cardsFor(d).length,updated=d.updatedAt||d.createdAt||'';return `<button class="kb28-doc" data-kb-action="opendoc" data-id="${safe(d.id)}"><span class="kb28-paper">▤</span><span class="kb28-doc-label"><strong>${safe(d.title)}</strong><small>${d.legacy?'Bisherige Notiz':d.sourceName?safe(d.sourceName):'BrainHome-Dokument'} · ${sections} Lernabschnitt${sections===1?'':'e'}${updated?' · '+safe(updated.slice(0,10)):''}</small></span><span class="kb28-chevron">›</span></button>`}
@@ -128,7 +170,7 @@ upload.onchange=async()=>{const file=upload.files?.[0];upload.value='';if(!file)
  }catch(error){alert('Datei konnte nicht importiert werden: '+error.message)}};
 // Delegate only new data-kb-action controls; legacy knowledge code does not match them.
 document.addEventListener('click',e=>{const b=e.target.closest?.('[data-kb-action]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();const act=b.dataset.kbAction,id=b.dataset.id;
- switch(act){case'home':changeRoute({rootId:null,folderId:null,docId:null,mode:'library',filter:''});break;
+ switch(act){case'backone':oneLevelUp();break;case'home':changeRoute({rootId:null,folderId:null,docId:null,mode:'library',filter:''});break;
  case'openroot':if(id===uni()?.id)ensureSubjects();changeRoute({rootId:id,folderId:id,docId:null,mode:'folder',filter:''});break;
  case'openfolder':{const n=node(id);if(!n)return;changeRoute({rootId:ancestor(n)?.id,folderId:id,docId:null,mode:'folder',filter:''});break}
  case'backfolder':changeRoute({mode:'folder',docId:null});break;
@@ -142,6 +184,37 @@ document.addEventListener('click',e=>{const b=e.target.closest?.('[data-kb-actio
  case'rate':{if(!answerOpen)return;const c=cardForStudy();if(c&&['again','hard','good','easy'].includes(b.dataset.grade))rateCard(c,b.dataset.grade);break}
  }} ,true);
 document.addEventListener('input',e=>{if(e.target?.id==='kb28Search'){route.filter=e.target.value;saveRoute();const f=node(route.folderId);const matches=docsHere(f?.id).filter(d=>d.title.toLocaleLowerCase('de').includes(route.filter.toLocaleLowerCase('de')));document.getElementById('kb28DocumentList').innerHTML=matches.map(docCard).join('')||'<p class="kb28-empty">Keine passenden Dokumente.</p>'}},true);
+// The visible Wissensbaum tab is also a reliable "back to library overview" control.
+// Run in capture phase before legacy tab handlers on the button.
+document.addEventListener('click',e=>{
+ const tab=e.target.closest?.('nav.tabs [data-tab="knowledge"]');
+ if(!tab)return;
+ if(data.tab==='knowledge'){
+  e.preventDefault();e.stopImmediatePropagation();
+  changeRoute(libraryRoute());
+ }else{
+  // Entering from another application tab establishes an in-app Back destination.
+  libraryHistoryReady=false;
+  route=libraryRoute();saveRoute();
+  initLibraryHistory();
+ }
+},true);
+// Android system/browser Back: restore the previous level without reloading or
+// navigating out of the PWA. Other app tabs keep their old behavior.
+window.addEventListener('popstate',e=>{
+ if(e.state?.bhLibraryRoute){
+  route={...libraryRoute(),...e.state.bhLibraryRoute};
+  data.tab='knowledge';saveRoute();render();return;
+ }
+ if(e.state?.bhLibraryLanding){
+  route=libraryRoute();saveRoute();libraryHistoryReady=false;
+  setTab('home');return;
+ }
+ if(data.tab==='knowledge'){
+  // Fallback for older history entries created by prior BrainHome versions.
+  oneLevelUp();
+ }
+});
 // Root and nested category cards support reorder by long-press and drag, preserving order.
 let holding=null,pressTimer=null,suppressUntil=0;
 const clearHold=()=>{clearTimeout(pressTimer);document.querySelectorAll('.kb28-grabbing,.kb28-drop').forEach(x=>x.classList.remove('kb28-grabbing','kb28-drop'));holding=null};
@@ -153,7 +226,7 @@ document.addEventListener('click',e=>{if(Date.now()<suppressUntil&&e.target.clos
 // Restore from route only when knowledge is active, leaving all other pages unchanged.
 const oldRender=render;
 render=function(...args){if(data.tab==='knowledge'){window.BHRoute?.remember?.();renderLibrary();return}return oldRender(...args)};
-if(data.tab==='knowledge')render();
+if(data.tab==='knowledge'){initLibraryHistory();render();}
 const css=document.createElement('style');css.textContent=String.raw`
 .kb28{max-width:1100px;margin:auto;color:#294334}.kb28 button{cursor:pointer}.kb28-top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:4px 0 24px;flex-wrap:wrap}.kb28-top h2{font-size:clamp(26px,4vw,40px);letter-spacing:-1.5px;margin:4px 0}.kb28-top p{color:#708273;margin:0}.kb28-kicker{font-size:10px;font-weight:800;letter-spacing:.15em;color:var(--kb-dark,#55735d);text-transform:uppercase}.kb28-rootgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:13px}.kb28-root{position:relative;background:var(--kb-light);border:1px solid color-mix(in srgb,var(--kb-dark),white 75%);border-radius:20px;min-height:185px;transition:transform .15s}.kb28-root:hover{transform:translateY(-2px)}.kb28-root-main{background:none;border:0;text-align:left;width:100%;display:flex;flex-direction:column;align-items:start;padding:24px;color:var(--kb-dark)}.kb28-root-icon{font-size:32px;margin-bottom:20px}.kb28-root-main strong{font-size:23px;letter-spacing:-.4px}.kb28-root-main>span:last-child{font-size:12px;color:var(--kb-dark);opacity:.75;margin-top:9px}.kb28-overflow{position:absolute;top:12px;right:12px;background:#ffffffaf;color:#456;min-width:30px;height:30px;border:0;border-radius:9px;font-size:20px}.kb28-foot{font-size:12px;color:#799080;margin:20px 2px;line-height:1.5}.kb28-crumb{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:1px 0 16px}.kb28-crumb button{color:#577360;padding:6px 4px;background:transparent;border:0;font-size:12px}.kb28-crumb span{color:#abc0ae}.kb28-crumb [aria-current]{font-weight:700;color:#355b43}.kb28-hero{background:var(--kb-light);border:1px solid color-mix(in srgb,var(--kb-dark),white 80%);border-radius:18px;padding:22px;display:flex;align-items:center;gap:18px;position:relative}.kb28-heroicon{background:#ffffffb5;border-radius:14px;display:grid;place-items:center;width:58px;height:58px;font-size:31px;flex-shrink:0}.kb28-hero h2{font-size:clamp(23px,4vw,32px);margin:4px 0;color:var(--kb-dark)}.kb28-hero p{margin:2px 0;color:var(--kb-dark);opacity:.8;font-size:13px}.kb28-header-menu{margin-left:auto;align-self:flex-start;color:var(--kb-dark);background:#ffffffb7;border:0;border-radius:9px;padding:8px 12px}.kb28-section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:27px 0 12px;flex-wrap:wrap}.kb28-section-head h3{font-size:17px;margin:0;color:#2c4b37}.kb28-count{font-size:12px;font-weight:500;color:#78907f}.kb28-section-head button,.kb28-addbar button{font-size:12px;color:var(--kb-dark,#3b664a);background:#f0f6ef;border:1px solid #e0eadf;padding:8px 10px;border-radius:10px}.kb28-addbar{display:flex;gap:6px;flex-wrap:wrap}.kb28-foldergrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.kb28-folder{position:relative;background:white;border:1px solid #e2eae2;border-radius:15px;min-height:92px}.kb28-folder:hover{border-color:#a5bfa8}.kb28-folder-main{width:100%;height:100%;display:flex;gap:12px;align-items:center;text-align:left;background:none;border:0;color:#294736;padding:17px 35px 17px 16px}.kb28-folder-glyph{font-size:23px;background:#f2f6ef;width:39px;height:42px;display:grid;place-items:center;border-radius:10px}.kb28-folder-text{display:flex;flex-direction:column;gap:4px;min-width:0}.kb28-folder-text strong{font-size:14px;overflow-wrap:anywhere}.kb28-folder-text small{font-size:11px;color:#8a9b8c}.kb28-chevron{margin-left:auto;font-size:25px;color:#a3b2a3}.kb28-folder .kb28-overflow{top:6px;right:6px}.kb28-docgrid{display:grid;gap:8px}.kb28-doc{width:100%;background:#fff;border:1px solid #e1e9de;padding:14px 17px;border-radius:13px;display:flex;gap:12px;align-items:center;text-align:left;color:#314b38}.kb28-doc:hover{border-color:#94b49c;background:#fafdfa}.kb28-paper{font-size:24px;color:var(--kb-dark);background:var(--kb-light);min-width:43px;height:44px;border-radius:11px;display:grid;place-items:center}.kb28-doc-label{flex:1;min-width:0}.kb28-doc-label strong{display:block;font-size:14px;overflow-wrap:anywhere}.kb28-doc-label small{display:block;font-size:11px;color:#819382;margin-top:4px;overflow-wrap:anywhere}.kb28-empty{border:1px dashed #dbe4db;background:#fafcf9;color:#899c8b;padding:18px;border-radius:13px;font-size:13px;grid-column:1/-1}.kb28-empty-doc{padding:30px}#kb28Search{border-radius:11px;border:1px solid #dce7dc;padding:12px 14px;width:100%;margin:0 0 12px;background:white;font-size:14px}.kb28-study-banner{margin:15px 0 0;background:#fff;border:1px solid #e4e0ef;border-radius:14px;display:flex;align-items:center;gap:12px;padding:14px}.kb28-study-icon{background:#f1ecfc;border-radius:12px;color:#67588f;padding:10px;font-size:22px}.kb28-study-banner>div{flex:1}.kb28-study-banner strong{font-size:14px}.kb28-study-banner p{font-size:11px;color:#8b839d;margin:4px 0}.kb28-study-btn{background:#655a85;color:white;border:0;border-radius:10px;padding:10px 14px;font-size:13px}.kb28-reader-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 20px}.kb28-back{background:none;border:0;color:#55735f;padding:8px 0}.kb28-reader-actions{display:flex;gap:6px;flex-wrap:wrap}.kb28-reader-actions .btn{font-size:12px}.kb28-document-title{padding:20px 4px}.kb28-document-title h2{font-size:clamp(26px,4vw,40px);letter-spacing:-1px;line-height:1.2;margin:9px 0}.kb28-document-title small{color:#819484}.kb28-reader-grid{display:grid;grid-template-columns:minmax(150px,220px) minmax(0,1fr);gap:16px}.kb28-reader-grid:not(:has(.kb28-toc)){display:block}.kb28-toc{align-self:start;position:sticky;top:8px;background:#f3f7f1;border-radius:13px;padding:16px;max-height:80vh;overflow:auto}.kb28-toc>strong{font-size:10px;letter-spacing:.12em;color:#76917c}.kb28-toc button{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #e4ece2;color:#557461;padding:9px 2px;font-size:12px;overflow-wrap:anywhere}.kb28-paperbody{background:#fff;padding:clamp(17px,4vw,36px);border:1px solid #e7ede5;border-radius:15px;color:#2b3e32;line-height:1.72;font-size:14px;overflow-wrap:anywhere}.kb28-paperbody h2,.kb28-paperbody h3,.kb28-paperbody h4,.kb28-paperbody h5{line-height:1.3;margin:1.4em 0 .6em;color:#284d37;scroll-margin-top:20px}.kb28-paperbody h2:first-child{margin-top:0}.kb28-paperbody p{margin:.7em 0}.kb28-paperbody li{margin:4px 0}.kb28-paperbody pre{padding:12px;background:#f2f6f1;overflow:auto;border-radius:10px}.kb28-paperbody code{background:#eef3ec;padding:1px 4px;border-radius:4px}.kb28-paperbody blockquote{border-left:3px solid #91b79a;margin:10px 0;padding:8px 14px;background:#f7faf6}.kb28-paperbody hr{border:0;border-top:1px solid #e4ebe3}.kb28-study-page{max-width:780px}.kb28-study-top{display:flex;justify-content:space-between;align-items:center;color:#85998a;font-size:12px}.kb28-study-header{text-align:center;margin:18px 0}.kb28-study-header h2{font-size:32px;margin:7px 0}.kb28-study-header p{font-size:13px;color:#829488}.kb28-flash{background:#fff;box-shadow:0 8px 30px #2638270b;border:1px solid #e1e9df;border-radius:19px;min-height:310px;padding:clamp(20px,5vw,36px);text-align:center}.kb28-flash-kicker{font-size:11px;color:#8ba08d;margin-bottom:19px}.kb28-flash-question{font-size:clamp(21px,4vw,29px);font-weight:700;color:#315440;line-height:1.35}.kb28-question-note{font-size:12px;color:#9ba89b;margin:15px 0 24px}.kb28-reveal{display:block;background:#456e56;border:0;color:white;border-radius:11px;padding:13px 25px;margin:30px auto}.kb28-flash-answer{border-top:1px solid #e6ece5;margin-top:25px;padding-top:16px;text-align:left}.kb28-flash-answer>span{font-size:10px;color:#819684;font-weight:700;letter-spacing:.11em}.kb28-flash-answer .kb28-paperbody{margin-top:10px;border:0;padding:4px;font-size:13px}.kb28-ratings{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:20px}.kb28-ratings button{background:#eff5ef;border:1px solid #d9e6da;padding:9px 3px;border-radius:10px;color:#396349}.kb28-ratings button:first-child{background:#f9eee8;border-color:#ecd5c8;color:#926049}.kb28-ratings button:last-child{background:#e7f2e7;color:#366648}.kb28-ratings strong{display:block;font-size:12px}.kb28-ratings small{display:block;font-size:9px;margin-top:3px;opacity:.7}.kb28-study-done{text-align:center;padding:40px 20px;background:white;border:1px solid #e3ece1;border-radius:17px}.kb28-study-done>div{color:#477455;font-size:40px}.kb28-study-done h3{margin:8px 0}.kb28-study-done p{color:#809280}.kb28-grabbing{opacity:.55;outline:2px dashed #6a9874}.kb28-drop{outline:3px solid #6e9b79;background:#e9f4e7}.kb28-root-main,.kb28-folder-main{touch-action:pan-y;user-select:none;-webkit-user-select:none}#kb28DocDialog{max-width:min(95vw,850px)}#kb28DocBody{min-height:260px;line-height:1.5}#kb28FolderDialog,#kb28DocDialog{max-height:94vh;overflow-y:auto}@media(max-width:680px){.kb28-rootgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.kb28-root{min-height:155px}.kb28-root-main{padding:18px 12px}.kb28-root-main strong{font-size:18px}.kb28-root-icon{font-size:28px;margin-bottom:15px}.kb28-hero{padding:15px;gap:11px}.kb28-heroicon{width:43px;height:43px;font-size:23px}.kb28-reader-grid{display:block}.kb28-toc{position:static;max-height:190px;margin-bottom:10px}.kb28-ratings{gap:3px}.kb28-ratings strong{font-size:11px}.kb28-ratings small{font-size:8px}}
 `;document.head.append(css);

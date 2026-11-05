@@ -1,30 +1,18 @@
-# BrainHome v2.9 – Schlanke Aufgabenbäume und Schritte
+# BrainHome v3.0 · Baum & Wissensnavigation
 
-## Sicher installieren
+## Änderungen
+- Aufgabenbaum **wieder als farbiger, verzweigter Baum**. Nur Kategorien bilden Äste. Alle Aufgaben stehen als **schmale, farbig nach Priorität markierte Karten** direkt unter ihrer Kategorie.
+- Aufgaben sortiert: offene vor erledigten, innerhalb dessen Sofort → Wichtig → Später → Warten → ohne Priorität. Drag & Drop mit langem Drücken zwischen Kategorien (auch im großen Baum). Die Position innerhalb einer Kategorie wird automatisch durch die Priorität bestimmt.
+- Kategorie antippen → Aufgabe direkt dort hinzufügen; eigener Button für Unterkategorie. Die v2.9-Schrittlisten und ihre Statistik bleiben erhalten.
+- Studienbibliothek: „← Zurück“ führt **eine Ebene nach oben** (Dokument → Fach → Uni → Wissensübersicht). Browser-/Android-Zurück navigiert durch vorherige Bibliotheksseiten; der Startpunkt führt zur BrainHome-Startseite.
+- Auf den Tab **Wissensbaum** tippen, während man darin ist: zurück zur farbigen Wissensübersicht.
+- Kein neues Datenformat, keine Änderung an cloud.js oder firebase-config.js.
 
-1. In der bisher funktionierenden BrainHome-Version **JSON-Backup exportieren** und die bisherige v2.8-ZIP aufbewahren. Die automatische Umordnung bestehender verschachtelter Aufgaben ist eine Datenmigration.
-2. Nur diese drei Dateien im Stammverzeichnis des bestehenden GitHub-Repositories ersetzen: `index.html`, `app.js`, `sw.js`.
-3. **Unverändert lassen:** `study.js` (die Studienbibliothek aus v2.8), `cloud.js`, `firebase-config.js`, `firestore.rules`, `manifest.webmanifest`, `icon-192.png`, `icon-512.png`.
-4. GitHub-Pages-Veröffentlichung abwarten, die installierte PWA vollständig schließen und neu öffnen. Keine Browserdaten löschen.
+## Installation
+1. Vorher BrainHome-JSON-Backup herunterladen und alte funktionierende ZIP behalten.
+2. In GitHub `index.html`, `app.js`, `study.js` und `sw.js` aktualisieren.
+3. `cloud.js`, `firebase-config.js`, `firestore.rules`, Icons und Manifest **nicht** überschreiben oder löschen.
+4. Nach dem Deployment die PWA vollständig schließen/erneut öffnen. Der Service-Worker hat eine neue Cache-Version.
 
-## Bedienung
-
-- **Kategorien** bilden die einzigen Äste. **Aufgaben** stehen als kompakte Reihen unter der zugehörigen Kategorie. Das gilt für den kleinen und großen Baum.
-- **Kategorie antippen** oder `＋` an der Kategorie wählen: Direktes Eingabefeld für eine Aufgabe. Mit Enter oder **Hinzufügen** speichern. Über `▣` entsteht eine neue Unterkategorie.
-- **Aufgabenname antippen**: Schritteliste öffnen, einzelne Schritte hinzufügen, bearbeiten, abhaken, wieder öffnen oder löschen. Die Hauptaufgabe bleibt nach dem Abhaken eines Schrittes bestehen. Sie hat ein eigenes Häkchen.
-- **Lang drücken und ziehen**: Aufgabe in eine andere Kategorie verschieben oder innerhalb einer Kategorie umordnen. Kategorien können ebenfalls durch langes Halten umsortiert oder unter eine andere Kategorie verschoben werden. Für Aufgaben gilt weiterhin Prioritätssortierung, solange keine manuelle Reihenfolge für alle Geschwister angelegt wurde.
-- **Erledigt**: Jeder Schrittabschluss erzeugt ein eigenes Ereignis in der bestehenden Eingang-/Ausgang-Statistik und erscheint im Abschnitt „Abgeschlossene Schritte“. Auch das Hinzufügen von Schritten zählt als Eingang.
-
-## Bestandsdaten und Sicherheit
-
-- Beim Start werden bisher unter anderen Aufgaben oder einfachen Listen eingerichtete Einträge **zur nächsthöheren Kategorie verschoben**. Dabei bleiben deren IDs, Namen, Fälligkeiten, Prioritäten, Notizen, Abschlusszustände und historische Abschlussereignisse erhalten. Separate Privat-/Studienstiftungs-Speziallisten bleiben unangetastet.
-- In Zukunft lässt das Aufgabenformular nur noch **Kategorien oder Inbox** als Ziel zu. Auch beim Hinzufügen innerhalb der Übersicht ist keine Aufgabe als übergeordnetes Element mehr nötig.
-- Schritte liegen als `steps`-Array direkt an der jeweiligen Aufgabe in `nodes`. Einzelne Eingangs- und Abschlussereignisse liegen unter dem bereits vorhandenen Feld `taskEvents`. Beide Felder gehören zum bisherigen JSON-Backup und Cloud-Payload. Keine Änderungen an Firebase-Regeln oder Cloud-Code erforderlich.
-- Bei einem **gelöschten Schritt** bleiben die zuvor protokollierten Ereignisse in der Statistik erhalten. Ein erneut geöffneter Schritt kann später ein neues Abschlussereignis erzeugen.
-- Die bestehende **Cloud-Grenze von ca. 850 KB** für den gesamten Payload bleibt bestehen. Umfangreiche Studiendokumente benötigen weiterhin die geplante separate Cloud-Dateiablage.
-
-## Technische Prüfung
-
-- JavaScript-Syntax von `app.js`, `study.js` und `sw.js` geprüft.
-- Chromium mit lokal eingebetteter App: Hauptprojekt öffnen, Kategorie direkt mit Aufgabe befüllen, Schritt hinzufügen und einzeln abhaken, Ein-/Ausgangsereignisse im Datenspeicher, abgeschlossener Schritt in „Erledigt“, vollständigen Baum öffnen, bestehende verschachtelte Aufgaben datenerhaltend in Kategorien umordnen, Zielauswahl ausschließlich Kategorien, Aufgabe per langem Mausdruck verschieben und aus „Alle Aufgaben“ in die passende Baumzeile springen.
-- Kein Live-Test der GitHub-Pages-Auslieferung, der Android-PWA oder des persönlichen Firebase-Kontos. Vor Installation bitte JSON-Backup exportieren.
+## Hinweis
+Der Baum ist im graphischen Modus bei vielen Kategorien breit und horizontal scrollbar/zoombar. Für Aufgaben ist kein manuelles Reihensortieren vorgesehen, da die Priorität die Reihenfolge automatisch festlegt. Es gibt weiterhin eine Cloud-Obergrenze für große Uni-Dokumente.

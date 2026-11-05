@@ -2213,7 +2213,7 @@ function taskHTML(n){
  const steps=Array.isArray(n.steps)?n.steps:[],done=steps.filter(s=>s.done).length;
  const chip=steps.length?`<span class="bh29-step-count">${done}/${steps.length}</span>`:'';
  const pri=normalizePriority(n.priority);
- return `<div class="bh29-task" data-bh29-task="${safe(n.id)}" data-priority="${safe(pri)}" data-done="${!!n.done}">
+ return `<div class="bh29-task" data-area="${safe(rootName(n))}" data-bh29-task="${safe(n.id)}" data-priority="${safe(pri)}" data-done="${!!n.done}">
   ${isTask(n)?`<button class="bh29-check" type="button" data-action="done" data-id="${safe(n.id)}" aria-label="${safe(n.name)} ${n.done?'wieder öffnen':'erledigen'}">${n.done?'↺':'✓'}</button>`:'<span class="bh29-bullet">·</span>'}
   <button type="button" class="bh29-task-name" data-bh29-open-task="${safe(n.id)}" title="Aufgabe und Schritte öffnen">${safe(n.name)}</button>
   ${chip}${pri&&pri!=='spaeter'?`<span class="bh29-priority" data-priority="${safe(pri)}">${safe(priorityLabel[pri]||pri)}</span>`:''}
@@ -2225,41 +2225,42 @@ function categoryHTML(n,lists,seen=new Set(),depth=0){
  const path=new Set(seen);path.add(n.id);
  const cats=lists.cats.get(n.id)||[],tasks=lists.tasks.get(n.id)||[];
  const open=!n.collapsed;
- const quick=quickId===n.id?`<form class="bh29-quick" data-bh29-quick-form="${safe(n.id)}"><input aria-label="Neue Aufgabe" maxlength="250" placeholder="Aufgabe eingeben …" required><button type="submit">Hinzufügen</button><button type="button" data-bh29-cancel>✕</button></form>`:'';
- return `<section class="bh29-category ${depth===0?'bh29-root':''}" data-bh29-category="${safe(n.id)}">
-  <div class="bh29-category-top">
+ const quick=quickId===n.id?`<form class="bh29-quick" data-bh29-quick-form="${safe(n.id)}"><input aria-label="Neue Aufgabe" maxlength="250" placeholder="Aufgabe eingeben …" required><button type="submit">＋</button><button type="button" data-bh29-cancel>✕</button></form>`:'';
+ const area=rootName(n);
+ return `<section class="bh29-category bh30-branch ${depth===0?'bh29-root bh30-root':''}" data-bh29-category="${safe(n.id)}" data-area="${safe(area)}">
+  <div class="bh29-category-top bh30-category-node" data-area="${safe(area)}">
    <button class="bh29-fold" type="button" data-action="toggle" data-id="${safe(n.id)}" aria-label="Kategorie ${open?'einklappen':'aufklappen'}">${open?'⌄':'›'}</button>
-   <button class="bh29-category-title" type="button" data-bh29-quick-toggle="${safe(n.id)}" title="Aufgabe direkt in diese Kategorie eintragen">${depth===0?safe((n.emoji||'🌿')+' '):'▦ '}${safe(n.name)}</button>
+   <button class="bh29-category-title" type="button" data-bh29-quick-toggle="${safe(n.id)}" title="Aufgabe direkt in diese Kategorie eintragen">${depth===0?safe((n.emoji||'🌿')+' '):''}${safe(n.name)}</button>
    <span class="bh29-category-count">${tasks.filter(x=>!x.done).length||''}</span>
    <button class="bh29-row-action" type="button" data-bh29-quick-toggle="${safe(n.id)}" title="Aufgabe hinzufügen" aria-label="Aufgabe hinzufügen">＋</button>
    <button class="bh29-row-action" type="button" data-bh29-new-category="${safe(n.id)}" title="Unterkategorie hinzufügen" aria-label="Unterkategorie hinzufügen">▣</button>
    <button class="bh29-row-action" type="button" data-action="edit" data-id="${safe(n.id)}" title="Kategorie bearbeiten" aria-label="Kategorie bearbeiten">✎</button>
   </div>
-  ${open?`<div class="bh29-content">${quick}<div class="bh29-task-list">${tasks.filter(x=>showDone||!isTask(x)||!x.done).map(taskHTML).join('')}</div>${cats.map(c=>categoryHTML(c,lists,path,depth+1)).join('')}</div>`:''}
+  ${open?`<div class="bh30-task-deck">${quick}<div class="bh29-task-list">${tasks.filter(x=>showDone||!isTask(x)||!x.done).map(taskHTML).join('')}</div></div>${cats.length?`<div class="bh30-children">${cats.map(c=>categoryHTML(c,lists,path,depth+1)).join('')}</div>`:''}`:''}
  </section>`;
 }
-function treeHTML(root){return `<div class="bh29-outline" data-bh29-outline>${categoryHTML(root,scoped(root))}</div>`}
+function treeHTML(root){return `<div class="bh29-outline bh30-visual-tree" data-bh29-outline>${categoryHTML(root,scoped(root))}</div>`}
 function repaint(){
  if(data.tab!=='tree')return;
  const root=get(data.active);if(!root)return;
  const scroller=app.querySelector('.bh13-graph-scroll'),tree=scroller?.querySelector('.bh13-tree');
  if(tree){
   const x=scroller.scrollLeft,y=scroller.scrollTop;
-  tree.innerHTML=treeHTML(root);tree.classList.add('bh29-tree');
+  tree.innerHTML=treeHTML(root);tree.classList.add('bh29-tree','bh30-tree');
   scroller.classList.add('bh29-scroller');
   scroller.scrollLeft=x;scroller.scrollTop=y;
   window.BH15?.applyZoom?.('preview');
  }
- const controls=app.querySelector('.bh13-graph-controls span');if(controls)controls.textContent='Kategorien öffnen · Aufgaben direkt darunter eintragen';
+ const controls=app.querySelector('.bh13-graph-controls span');if(controls)controls.textContent='Kategorien verzweigen · Aufgaben nach Priorität sortiert';
  const toolbar=app.querySelector('.toolbar');if(toolbar){
-  const view=toolbar.querySelector('[data-action="view"]');if(view)view.textContent='Kategorien & Aufgaben';
+  const view=toolbar.querySelector('[data-action="view"]');if(view)view.textContent='Verzweigter Baum';
   toolbar.querySelectorAll('[data-action="less"],[data-action="deeper"]').forEach(b=>b.remove());
   toolbar.querySelectorAll('.muted').forEach(el=>{if(/Ebenen/.test(el.textContent))el.remove()});
  }
  if(modal?.open){
   const full=document.getElementById('bh11TreeContent');
   const scroll=document.getElementById('bh11TreeScroll');
-  if(full&&scroll){const x=scroll.scrollLeft,y=scroll.scrollTop;full.classList.add('bh29-full');full.innerHTML=treeHTML(root);scroll.scrollLeft=x;scroll.scrollTop=y;window.BH15?.applyZoom?.('full')}
+  if(full&&scroll){const x=scroll.scrollLeft,y=scroll.scrollTop;full.classList.add('bh29-full','bh30-full');full.innerHTML=treeHTML(root);scroll.scrollLeft=x;scroll.scrollTop=y;window.BH15?.applyZoom?.('full')}
  }
 }
 const prevRender=render;
@@ -2371,7 +2372,7 @@ window.addEventListener('click',e=>{
  const root=get(data.active),full=document.getElementById('bh11TreeContent');
  if(!root||!full)return;
  document.getElementById('bh11TreeTitle').textContent=root.name;
- full.classList.add('bh29-full');full.innerHTML=treeHTML(root);
+ full.classList.add('bh29-full','bh30-full');full.innerHTML=treeHTML(root);
  const scroll=document.getElementById('bh11TreeScroll');scroll.classList.add('bh13-full-scroll');
  scroll.scrollLeft=0;scroll.scrollTop=0;
  window.BH15?.applyZoom?.('full');
@@ -2387,7 +2388,7 @@ window.addEventListener('click',e=>{
  if(node.done)showDone=true;
  openProject(root.id);
  if(!modal.open)modal.showModal();
- const full=document.getElementById('bh11TreeContent');full.classList.add('bh29-full');full.innerHTML=treeHTML(root);
+ const full=document.getElementById('bh11TreeContent');full.classList.add('bh29-full','bh30-full');full.innerHTML=treeHTML(root);
  const item=[...full.querySelectorAll('.bh29-task')].find(el=>el.dataset.bh29Task===node.id);
  if(item){item.classList.add('bh29-drop');item.scrollIntoView({block:'center',behavior:'instant'})}
  window.BH15?.applyZoom?.('full');
