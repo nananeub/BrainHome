@@ -1,27 +1,27 @@
-# BrainHome v3.1 – Kompakter Wissensbaum
+# BrainHome v3.2 – Sammeldokumente und Original-PDFs
 
-## Änderungen
-- Die Wissensübersicht hat kompaktere, farbige Kacheln ohne Dokumentanzahl und Einleitungstext.
-- In jedem Bereich gibt es eine kleine Überschrift und eine Zurück-Schaltfläche; die lange Pfadleiste und der Text „Lernwiederholungen nur für Uni“ wurden entfernt.
-- Das kleine `+` rechts über den Fächern/Untergruppen erstellt neue Untergruppen.
-- Über `⋯` an einer Kategorie bzw. im Seitenkopf lassen sich Name, Farbe und Emoji ändern oder die Kategorie löschen.
-- Ein Emoji kann aus einer Palette gewählt oder direkt über die Handy-Emoji-Tastatur eingegeben werden.
-- Beim Löschen einer **gefüllten** Kategorie werden ihre Unterkategorien und Dokumente in die übergeordnete Ebene verschoben; vorhandene Bereichsnotizen werden als Dokument übernommen. Bei einem gelöschten obersten Bereich landen direkte Dokumente im neuen Bereich „Ablage“. Inhalte werden nicht absichtlich gelöscht.
-- PDF-Dateien können über „Importieren“ ausgewählt werden. Die PDF.js-Bibliothek extrahiert den vorhandenen Text und legt ein bearbeitbares BrainHome-Dokument an. Die Seiten werden zunächst mit „## Seite 1“, „## Seite 2“ usw. überschrieben. Später können eigene Markdown-Überschriften ergänzt werden, um spezifische Lernkarten zu erhalten.
-
-## PDF: Einschränkungen
-- **Internet erforderlich**, um den PDF-Textleser von einem externen Bibliotheks-Server zu laden (PDF.js 5.5.207). Der Inhalt deiner PDF wird lokal im Browser ausgelesen; die ursprüngliche PDF-Datei selbst wird nicht gespeichert oder als Datei hochgeladen.
-- Bilder, Formeln, Tabellenlayout und Grafiken aus PDFs werden nicht zuverlässig übernommen; PDF-Scans ohne Text benötigen OCR und werden mit einer Fehlermeldung abgelehnt.
-- Maximal 3 MB Eingabedatei, 160 PDF-Seiten, 160 KB extrahierter Text pro BrainHome-Dokument. Die bestehende Cloud-Grenze von 850 KB für den gesamten Bestand bleibt bestehen (interner Sicherheitsabstand ab 760 KB).
-- Browser-Test: Dateiauswahl und Verarbeitung wurden mit einem **PDF.js-Test-Adapter** simuliert; die externe PDF.js-Datei konnte in dieser Ausführungsumgebung nicht live geladen werden. Bitte einen echten PDF-Import in der veröffentlichten App testen.
+Diese Version aktualisiert **nur** `index.html`, `study.js` und `sw.js` aus BrainHome v3.1. Die bestehende `app.js`, `cloud.js`, `firebase-config.js`, `firestore.rules` sowie die Icons und das Manifest bleiben unverändert.
 
 ## Installation
-1. **Vor dem Update das BrainHome-JSON-Backup exportieren.** Außerdem die zuletzt funktionierende ZIP behalten.
-2. Nur `index.html`, `study.js` und `sw.js` im GitHub-Repository ersetzen.
-3. `app.js`, `cloud.js`, `firebase-config.js`, `firestore.rules`, Icons und Manifest **unverändert behalten**.
-4. Die App nach dem GitHub-Pages-Update vollständig schließen und neu öffnen. Der Service-Worker-Cache wurde auf `brainhome-static-v31` erhöht.
+1. In der laufenden App über **Backup → Exportieren** ein JSON-Backup sichern.
+2. Im GitHub-Repository die drei Dateien `index.html`, `study.js` und `sw.js` ersetzen. Andere Dateien nicht löschen.
+3. GitHub Pages neu laden. Bei hartnäckig altem Design die Seite einmal neu laden. Der Service-Worker-Cache trägt jetzt v32.
 
-## Tests
-- JavaScript-Syntax geprüft.
-- In Chromium getestet: Wissensübersicht, Uni-Fächer, Kategorie anlegen, Emoji wählen, Untergruppe hinzufügen, Dokument erstellen/öffnen, Kategorie mit Inhalt entfernen und Inhalte erhalten, Zurück-Navigation.
-- PDF-Import nur mit simulierter PDF.js-Bibliothek getestet, nicht mit echtem PDF.js-Netzwerkdownload oder Firebase-Livekonto.
+## Änderungen
+- Hauptbereiche des Wissensbaums: **eine farbige Karte pro Zeile**, auch am Handy.
+- **Jede Nicht-Uni-Kategorie** (auch Untergruppen) zeigt oben ein großes, direkt editierbares Sammeldokument. Der Text liegt weiterhin im bisherigen `knowledgeNodes[].body` und wird nach kurzer Eingabepause automatisch gesichert. Bereits bestehende Bereichsnotizen bleiben erhalten.
+- Untergruppen und weitere Dokumente lassen sich weiterhin separat hinzufügen; die Dokumentenliste bleibt leer, wenn nichts angelegt wurde.
+- **Uni** bleibt die bestehende Bibliothek mit Fächern, Zusammenfassungen und Lernkarten. Dort erscheint kein Sammeldokument.
+- **Original-PDFs** (bis 25 MB) lassen sich importieren und auf demselben Gerät wieder öffnen bzw. herunterladen – auch Bildscans ohne erkennbaren Text. Bereits in v3.1 als reiner Text importierte PDFs kann man in der Dokumentansicht über „Original zuordnen“ mit der PDF verknüpfen.
+- „Text für Anki auslesen“ versucht bei Bedarf, den Text einer lokal gespeicherten PDF mit PDF.js auszulesen. Dafür muss PDF.js über das Internet erreichbar sein; Scans ohne Textebene benötigen weiterhin OCR. Schlägt die Textextraktion fehl, bleibt die Original-PDF erhalten.
+
+## WICHTIG: PDF-Dateien und Cloud-Backup
+
+Original-PDFs sind **zunächst nur lokal in IndexedDB auf dem Gerät**, auf dem sie importiert wurden. Dadurch bleibt die bisherige Firestore-Cloud-Synchronisierung unangetastet und die 850-KB-Grenze des bisherigen Cloud-Dokuments wird nicht durch PDF-Binärdateien überschritten. Titel, Zuordnung und ggf. ausgelesener Text gehören zur bisherigen BrainHome-Datenbank und können darüber synchronisiert werden.
+
+**Original-PDFs sind NICHT im JSON-Backup und werden NICHT geräteübergreifend synchronisiert.** Auf einem zweiten Gerät zeigt BrainHome den Eintrag und bietet „Original zuordnen“ an. Daher Original-PDFs unbedingt außerhalb von BrainHome aufbewahren bzw. über „PDF speichern“ selbst sichern. Das Löschen von Browserdaten oder die Bereinigung des Gerätespeichers kann die lokalen Original-PDFs entfernen. Eine echte geräteübergreifende Dateiablage über Firebase Storage braucht eine separate Einrichtung, Sicherheitsregeln und Tests.
+
+## Technische Prüfungen
+- JavaScript-Syntax mit Node geprüft.
+- Die Logik für Bereichsnotizen, Uni-Abgrenzung, PDF-Dateivalidierung und Speicherung mit einem simulierten IndexedDB-Datenspeicher geprüft, einschließlich einer PDF ohne Textebene.
+- Kein vollständiger Browsertest möglich: Die Browsertestruntime dieser Umgebung blockiert Seitenaufrufe administrativ. Auch eine persönliche Firebase-Cloud-Synchronisierung wurde nicht live getestet.

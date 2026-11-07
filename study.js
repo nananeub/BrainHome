@@ -15,6 +15,36 @@ const safe=x=>esc(x??'');
 const node=id=>(data.knowledgeNodes||[]).find(n=>n.id===id);
 const nodes=()=>data.knowledgeNodes||[];
 const docs=()=>data.knowledgeDocuments||[];
+// Original PDF files stay in IndexedDB, separate from the existing 850 KB
+// Firestore document. Only lightweight document metadata is cloud-synced.
+const PDF_DB='brainhome-original-pdfs-v1';
+function pdfDatabase(){return new Promise((resolve,reject)=>{
+ if(!('indexedDB' in window))return reject(new Error('Dieser Browser unterstützt keine lokale Dateispeicherung.'));
+ const request=indexedDB.open(PDF_DB,1);
+ request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('pdfs'))db.createObjectStore('pdfs',{keyPath:'id'})};
+ request.onsuccess=()=>resolve(request.result);
+ request.onerror=()=>reject(request.error||new Error('PDF-Speicher nicht verfügbar.'));
+ request.onblocked=()=>reject(new Error('Der PDF-Speicher ist noch in einem anderen Tab geöffnet.'));
+})}
+async function pdfRecord(id){const db=await pdfDatabase();return new Promise((resolve,reject)=>{const tx=db.transaction('pdfs','readonly'),r=tx.objectStore('pdfs').get(id);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();tx.onerror=()=>{db.close();reject(tx.error)}})}
+async function putPdf(id,file){const db=await pdfDatabase();return new Promise((resolve,reject)=>{const tx=db.transaction('pdfs','readwrite');tx.objectStore('pdfs').put({id,blob:file,name:file.name,size:file.size,savedAt:new Date().toISOString()});tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error||new Error('Speicherplatz oder Zugriffsrecht nicht verfügbar.'))};tx.onabort=()=>{db.close();reject(tx.error||new Error('PDF konnte nicht gespeichert werden.'))}})}
+async function dropPdf(id){try{const db=await pdfDatabase();return await new Promise((resolve,reject)=>{const tx=db.transaction('pdfs','readwrite');tx.objectStore('pdfs').delete(id);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error)}})}catch(e){console.warn('PDF entfernen',e)}}
+const isPdf=d=>d?.fileType==='pdf'||/\.pdf$/i.test(d?.sourceName||'');
+let pdfObjectURL=null;
+function releasePdfUrl(){if(pdfObjectURL){URL.revokeObjectURL(pdfObjectURL);pdfObjectURL=null}}
+async function attachPdfViewer(id){const frame=document.getElementById('kb32PdfFrame');if(!frame)return;const status=document.getElementById('kb32PdfStatus');try{
+ const record=await pdfRecord(id);if(route.docId!==id||!frame.isConnected)return;
+ if(!record){status.textContent='Die Original-PDF liegt auf diesem Gerät noch nicht vor. Du kannst sie hier erneut zuordnen; der gespeicherte Dokumenttext bleibt erhalten.';frame.hidden=true;return}
+ releasePdfUrl();pdfObjectURL=URL.createObjectURL(record.blob);
+ frame.src=pdfObjectURL;frame.hidden=false;const open=document.getElementById('kb32PdfOpen');if(open){open.href=pdfObjectURL;open.hidden=false}
+ status.textContent='Original-PDF · '+Math.max(1,Math.ceil(record.size/1024))+' KB · lokal gespeichert';
+ }catch(e){if(status)status.textContent='PDF-Speicher nicht erreichbar: '+e.message}
+}
+async function downloadOriginalPdf(){const d=resolveDoc(route.docId);if(!d)return;const record=await pdfRecord(d.id);if(!record){alert('Original-PDF auf diesem Gerät nicht vorhanden. Bitte über „Original zuordnen“ erneut auswählen.');return}
+ const url=URL.createObjectURL(record.blob),a=document.createElement('a');a.href=url;a.download=record.name||d.title+'.pdf';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)};
+let notesTimer=null,notesPending=false;
+function flushCollectionNotes(){if(notesPending){clearTimeout(notesTimer);notesPending=false;save();const hint=document.getElementById('kb32NoteStatus');if(hint)hint.textContent='Gespeichert ✓'}}
+
 const subs=id=>nodes().filter(n=>n.parent===id).sort((a,b)=>(a.order??0)-(b.order??0));
 const ancestor=n=>{const visited=new Set();while(n&&!visited.has(n.id)){visited.add(n.id);if(n.parent===null)return n;n=node(n.parent)}return null};
 const uni=()=>nodes().find(n=>n.parent===null&&(n.isUniRoot===true||n.name==='Uni'));
@@ -51,6 +81,7 @@ function initLibraryHistory(){
  }catch{}
 }
 function changeRoute(changes,{push=true}={}){
+ flushCollectionNotes();
  const next={...route,...changes};
  const changed=JSON.stringify({...next,filter:''})!==JSON.stringify({...route,filter:''});
  if(data.tab==='knowledge'&&changed){
@@ -107,13 +138,14 @@ function crumbs(){const arr=[];let n=node(route.folderId);while(n){arr.unshift(n
 function actionBar(){return ''}
 function rootScreen(){const roots=subs(null);return `<section class="kb28 kb31-library"><div class="kb31-pagehead"><h2>Wissensbaum</h2><button type="button" class="kb31-plus" data-kb-action="newroot" title="Wissensbereich hinzufügen" aria-label="Wissensbereich hinzufügen">＋</button></div><div class="kb28-rootgrid">${roots.map(n=>`<article class="kb28-root" style="${styleOf(n)}" data-kb-category="${safe(n.id)}"><button class="kb28-root-main" data-kb-action="openroot" data-id="${safe(n.id)}"><span class="kb28-root-icon">${safe(emojiFor(n))}</span><strong>${safe(n.name)}</strong></button><button class="kb28-overflow" data-kb-action="editfolder" data-id="${safe(n.id)}" title="Bereich bearbeiten oder löschen" aria-label="${safe(n.name)} bearbeiten">⋯</button></article>`).join('')}</div></section>`}
 function folderCard(n){return `<article class="kb28-folder" style="${styleOf(n)}" data-kb-category="${safe(n.id)}"><button class="kb28-folder-main" data-kb-action="openfolder" data-id="${safe(n.id)}"><span class="kb28-folder-glyph">${safe(emojiFor(n))}</span><span class="kb28-folder-text"><strong>${safe(n.name)}</strong></span><span class="kb28-chevron">›</span></button><button class="kb28-overflow" data-kb-action="editfolder" data-id="${safe(n.id)}" title="Bearbeiten oder löschen" aria-label="${safe(n.name)} bearbeiten">⋯</button></article>`}
-function docCard(d){const sections=cardsFor(d).length,updated=d.updatedAt||d.createdAt||'';return `<button class="kb28-doc" data-kb-action="opendoc" data-id="${safe(d.id)}"><span class="kb28-paper">▤</span><span class="kb28-doc-label"><strong>${safe(d.title)}</strong><small>${d.legacy?'Bisherige Notiz':d.sourceName?safe(d.sourceName):'BrainHome-Dokument'} · ${sections} Lernabschnitt${sections===1?'':'e'}${updated?' · '+safe(updated.slice(0,10)):''}</small></span><span class="kb28-chevron">›</span></button>`}
-function folderScreen(){const f=node(route.folderId),root=rootFor(f?.id);if(!f||!root)return rootScreen();if(f.id===uni()?.id)ensureSubjects();const direct=subs(f.id),documentList=docsHere(f.id),atUni=inUni(f),q=atUni?sessionQueue():null;
+function docCard(d){const sections=cardsFor(d).length,updated=d.updatedAt||d.createdAt||'';return `<button class="kb28-doc" data-kb-action="opendoc" data-id="${safe(d.id)}"><span class="kb28-paper">${isPdf(d)?'📄':'▤'}</span><span class="kb28-doc-label"><strong>${safe(d.title)}</strong><small>${d.legacy?'Bisherige Notiz':d.sourceName?safe(d.sourceName):'BrainHome-Dokument'}${isPdf(d)?' · PDF':''}${inUni(node(d.folderId))?' · '+sections+' Lernabschnitt'+(sections===1?'':'e'):''}${updated?' · '+safe(updated.slice(0,10)):''}</small></span><span class="kb28-chevron">›</span></button>`}
+function folderScreen(){const f=node(route.folderId),root=rootFor(f?.id);if(!f||!root)return rootScreen();if(f.id===uni()?.id)ensureSubjects();const direct=subs(f.id),atUni=inUni(f),documentList=atUni?docsHere(f.id):docs().filter(d=>d.folderId===f.id).sort((a,b)=>(b.updatedAt||b.createdAt||'').localeCompare(a.updatedAt||a.createdAt||'')),q=atUni?sessionQueue():null;
  return `<section class="kb28 kb31-folder-page" style="${styleOf(root)}"><header class="kb31-folder-head"><button type="button" class="kb31-back" data-kb-action="backone" aria-label="Eine Ebene zurück">←</button><span class="kb31-title-emoji">${safe(emojiFor(f))}</span><h2>${safe(f.name)}</h2><button type="button" class="kb31-head-edit" data-kb-action="editfolder" data-id="${safe(f.id)}" title="Name, Emoji, Farbe oder Löschen">⋯</button></header>
  ${f.id===uni()?.id?`<div class="kb28-study-banner"><span class="kb28-study-icon">◉</span><div><strong>Heute wiederholen</strong><p>${q.due} fällige · ${q.newCount} neue</p></div><button class="kb28-study-btn" data-kb-action="study">Lernen ${q.queue.length?'('+q.queue.length+')':''}</button></div>`:''}
+ ${!atUni?`<section class="kb32-collection"><div class="kb32-collection-head"><h3>Mein Sammeldokument</h3><span id="kb32NoteStatus">Wird automatisch gespeichert</span></div><textarea id="kb32CollectionEditor" aria-label="Sammeldokument für ${safe(f.name)}" placeholder="Schreibe hier alles zu ${safe(f.name)} hinein …\n\nGedanken, Fakten, Zitate, eigene Zusammenfassungen …">${safe(f.body||'')}</textarea></section>`:''}
  <div class="kb31-section-head"><h3>${f.id===uni()?.id?'Fächer':'Untergruppen'}</h3><button type="button" class="kb31-plus" data-kb-action="newfolder" title="Untergruppe hinzufügen" aria-label="Untergruppe hinzufügen">＋</button></div><div class="kb28-foldergrid">${direct.map(folderCard).join('')}</div>
- <div class="kb31-section-head kb31-doc-head"><h3>Dokumente</h3><div class="kb28-addbar"><button data-kb-action="upload">⇧ Importieren</button><button data-kb-action="newdoc">＋ Dokument</button></div></div>
- ${documentList.length?`<input type="search" id="kb28Search" placeholder="Dokumente durchsuchen …" aria-label="Dokumente durchsuchen" value="${safe(route.filter||'')}"><div class="kb28-docgrid" id="kb28DocumentList">${documentList.filter(d=>d.title.toLocaleLowerCase('de').includes((route.filter||'').toLocaleLowerCase('de'))).map(docCard).join('')}</div>`:'<div class="kb28-empty kb28-empty-doc">Noch keine Dokumente.</div>'}
+ <div class="kb31-section-head kb31-doc-head"><h3>Weitere Dokumente</h3><div class="kb28-addbar"><button data-kb-action="upload">⇧ Importieren</button><button data-kb-action="newdoc">＋ Dokument</button></div></div>
+ ${documentList.length?`<input type="search" id="kb28Search" placeholder="Dokumente durchsuchen …" aria-label="Dokumente durchsuchen" value="${safe(route.filter||'')}"><div class="kb28-docgrid" id="kb28DocumentList">${documentList.filter(d=>d.title.toLocaleLowerCase('de').includes((route.filter||'').toLocaleLowerCase('de'))).map(docCard).join('')}</div>`:atUni?'<div class="kb28-empty kb28-empty-doc">Noch keine Dokumente.</div>':''}
  </section>`}
 function inlineMarkdown(text){let s=safe(text);s=s.replace(/`([^`]+)`/g,'<code>$1</code>');s=s.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>');s=s.replace(/\*([^*\n]+)\*/g,'<em>$1</em>');s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');return s}
 function markdown(text){const lines=String(text||'').replace(/\r\n/g,'\n').split('\n');let html='',inCode=false,code=[],para=[],list=null,headings=[];
@@ -125,10 +157,10 @@ function markdown(text){const lines=String(text||'').replace(/\r\n/g,'\n').split
  if(/^>\s?/.test(str)){flushPara();flushList();html+='<blockquote>'+inlineMarkdown(str.replace(/^>\s?/,''))+'</blockquote>';continue}
  const item=str.match(/^([-*+]\s+|\d+[.)]\s+)(.*)$/);if(item){flushPara();const type=/^\d/.test(item[1])?'ol':'ul';if(list!==type){flushList();list=type;html+=`<${list}>`}html+='<li>'+inlineMarkdown(item[2])+'</li>';continue}
  flushList();para.push(str)}flushPara();flushList();if(inCode)html+='<pre><code>'+safe(code.join('\n'))+'</code></pre>';return {html,headings}}
-function readerScreen(){const doc=resolveDoc(route.docId);if(!doc)return folderScreen();const root=rootFor(doc.folderId);const parsed=markdown(doc.text),atUni=inUni(node(doc.folderId));return `<section class="kb28" style="${styleOf(root)}">${actionBar()}<div class="kb28-reader-head"><button class="kb28-back" data-kb-action="backfolder">← Alle Dokumente</button><div class="kb28-reader-actions"><button class="btn" data-kb-action="download">↓ Markdown</button><button class="btn" data-kb-action="editdoc">✎ Bearbeiten</button>${atUni?'<button class="btn primary" data-kb-action="study">◉ Wiederholen</button>':''}</div></div><header class="kb28-document-title"><div class="kb28-kicker">${safe(root?.name||'WISSEN')} / ${safe(node(doc.folderId)?.name||'')}</div><h2>${safe(doc.title)}</h2>${doc.sourceName?`<small>Importiert aus ${safe(doc.sourceName)}</small>`:''}</header><div class="kb28-reader-grid">${parsed.headings.length>1?`<aside class="kb28-toc"><strong>INHALT</strong>${parsed.headings.map(h=>`<button data-kb-action="jump" data-id="${h.id}">${safe(h.text)}</button>`).join('')}</aside>`:''}<article class="kb28-paperbody">${parsed.html||'<p>Noch kein Inhalt. Öffne Bearbeiten, um deine Notizen einzufügen.</p>'}</article></div></section>`}
+function readerScreen(){const doc=resolveDoc(route.docId);if(!doc)return folderScreen();const root=rootFor(doc.folderId);const parsed=markdown(doc.text),atUni=inUni(node(doc.folderId));return `<section class="kb28" style="${styleOf(root)}">${actionBar()}<div class="kb28-reader-head"><button class="kb28-back" data-kb-action="backfolder">← Alle Dokumente</button><div class="kb28-reader-actions"><button class="btn" data-kb-action="download">↓ Markdown</button><button class="btn" data-kb-action="editdoc">✎ Bearbeiten</button>${atUni?'<button class="btn primary" data-kb-action="study">◉ Wiederholen</button>':''}</div></div><header class="kb28-document-title"><div class="kb28-kicker">${safe(root?.name||'WISSEN')} / ${safe(node(doc.folderId)?.name||'')}</div><h2>${safe(doc.title)}</h2>${doc.sourceName?`<small>Importiert aus ${safe(doc.sourceName)}</small>`:''}</header>${isPdf(doc)?`<div class="kb32-pdf-box"><div class="kb32-pdf-toolbar"><strong>📄 Original-PDF</strong><a class="btn" id="kb32PdfOpen" href="#" target="_blank" rel="noopener" hidden>↗ PDF öffnen</a><button type="button" class="btn" data-kb-action="pdfdownload">↓ PDF speichern</button><button type="button" class="btn" data-kb-action="pdfreattach">Original zuordnen</button><button type="button" class="btn" data-kb-action="pdfextract">Text für Anki auslesen</button></div><p class="kb32-pdf-status" id="kb32PdfStatus">PDF wird auf diesem Gerät gesucht …</p><iframe id="kb32PdfFrame" title="PDF: ${safe(doc.title)}" hidden></iframe><small>Die Original-PDF ist auf diesem Gerät gespeichert, nicht im bisherigen Cloud-Backup. Bitte die Originaldatei zusätzlich aufbewahren.</small></div>`:''}<div class="kb28-reader-grid">${parsed.headings.length>1?`<aside class="kb28-toc"><strong>INHALT</strong>${parsed.headings.map(h=>`<button data-kb-action="jump" data-id="${h.id}">${safe(h.text)}</button>`).join('')}</aside>`:''}${doc.text?.trim()?`<article class="kb28-paperbody">${parsed.html}</article>`:isPdf(doc)?'':'<article class="kb28-paperbody kb28-empty">Noch kein Text.</article>'}</div></section>`}
 function studyScreen(){const u=uni();if(!u)return rootScreen();const q=sessionQueue();const card=cardForStudy();studyCard=card?{id:card.id,docId:card.docId}:null;
  return `<section class="kb28 kb28-study-page" style="${styleOf(u)}"><div class="kb28-study-top"><button data-kb-action="studyexit" class="kb28-back">← Uni</button><span>${q.due} fällige · ${q.newCount} neue</span></div><div class="kb28-study-header"><div class="kb28-kicker">AKTIVES ERINNERN · UNI</div><h2>Wiederholen</h2><p>Erst selbst erinnern, dann die Lösung aufdecken.</p></div>${card?`<div class="kb28-flash"><div class="kb28-flash-kicker">${safe(card.docTitle)}</div><div class="kb28-flash-question">${safe(card.title)}</div><div class="kb28-question-note">Was weißt du noch zu diesem Abschnitt?</div>${answerOpen?`<div class="kb28-flash-answer"><span>DEINE ZUSAMMENFASSUNG</span><div class="kb28-paperbody">${markdown(card.text).html}</div></div><div class="kb28-ratings"><button data-kb-action="rate" data-grade="again"><strong>Nochmal</strong><small>10 Minuten</small></button><button data-kb-action="rate" data-grade="hard"><strong>Schwer</strong><small>1+ Tag</small></button><button data-kb-action="rate" data-grade="good"><strong>Gut</strong><small>Wachsend</small></button><button data-kb-action="rate" data-grade="easy"><strong>Einfach</strong><small>Länger</small></button></div>`:`<button class="kb28-reveal" data-kb-action="reveal">Antwort anzeigen</button>`}</div>`:`<div class="kb28-study-done"><div>✓</div><h3>Für heute alles geschafft!</h3><p>Deine nächste Wiederholung erscheint automatisch, sobald ein Abschnitt wieder fällig ist.</p><button class="btn primary" data-kb-action="studyexit">Zurück zu Uni</button></div>`}<p class="kb28-foot">Die Zeitabstände orientieren sich an einem vereinfachten Spaced-Repetition-Verfahren. Sie sind keine exakte Anki/FSRS-Implementierung.</p></section>`}
-function renderLibrary(){ensureRoots();validRoute();if(route.rootId===uni()?.id&&route.mode!=='library')ensureSubjects();document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='knowledge'));const app=document.getElementById('app');app.innerHTML=route.mode==='library'?rootScreen():route.mode==='reader'?readerScreen():route.mode==='study'?studyScreen():folderScreen()}
+function renderLibrary(){releasePdfUrl();ensureRoots();validRoute();if(route.rootId===uni()?.id&&route.mode!=='library')ensureSubjects();document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab==='knowledge'));const app=document.getElementById('app');app.innerHTML=route.mode==='library'?rootScreen():route.mode==='reader'?readerScreen():route.mode==='study'?studyScreen():folderScreen();if(route.mode==='reader'&&isPdf(resolveDoc(route.docId)))void attachPdfViewer(route.docId)}
 // Editors, shared by all knowledge sections.
 const EMOJIS=['🎓','🩺','💊','🦠','🫀','🧬','🫁','📚','📝','💡','✨','🌿','🌸','🎨','🪴','🌍','🏛️','🤝','🧠','💬','🎼','📸','🔬','🧪','🧫','💻','💰','🏃','🎯','💗','🌙','🌞'];
 const folderDialog=document.createElement('dialog');folderDialog.id='kb28FolderDialog';folderDialog.innerHTML=`<form class="modal kb31-category-editor"><h2 id="kb28FolderHeading">Bereich</h2><div class="field"><label for="kb28FolderName">Name</label><input id="kb28FolderName" required maxlength="180"></div><div class="field"><label for="kb31FolderEmoji">Emoji</label><div class="kb31-emoji-entry"><span id="kb31EmojiPreview">📚</span><input id="kb31FolderEmoji" maxlength="16" placeholder="Emoji eingeben oder unten auswählen" aria-label="Emoji"></div><div class="kb31-emoji-grid" role="group" aria-label="Emoji auswählen">${EMOJIS.map(e=>`<button type="button" class="kb31-emoji-option" data-kb-emoji="${e}" aria-label="${e}">${e}</button>`).join('')}</div></div><div class="field"><label for="kb28FolderColor">Farbe</label><select id="kb28FolderColor">${Object.entries(PALETTE).map(([id,x])=>`<option value="${id}">${x.name}</option>`).join('')}</select></div><footer><button type="button" class="btn" id="kb28FolderDelete">Löschen</button><button type="button" class="btn" id="kb28FolderCancel">Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;document.body.append(folderDialog);
@@ -180,7 +212,7 @@ docDialog.querySelector('form').onsubmit=e=>{e.preventDefault();const title=docD
  docDialog.close();save();changeRoute({mode:'reader',docId:id})};
 docDialog.querySelector('#kb28DocDelete').onclick=()=>{const d=resolveDoc(docEditing);if(!d||!confirm('Dokument wirklich löschen? Bitte vorher ein Backup exportieren.'))return;
  if(d.legacy){const n=node(docEditing.slice(7));if(n){n.body='';n.studyReview={}}}else data.knowledgeDocuments=docs().filter(x=>x.id!==docEditing);
- docDialog.close();save();changeRoute({mode:'folder',docId:null})};
+ if(isPdf(d))void dropPdf(d.id);docDialog.close();save();changeRoute({mode:'folder',docId:null})};
 function downloadDoc(){const doc=resolveDoc(route.docId);if(!doc)return;const blob=new Blob([doc.text],{type:'text/markdown;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=doc.title.replace(/[^\p{L}\p{N}_-]+/gu,'-').slice(0,100)+'.md';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500)}
 // Minimal .docx ZIP extraction using browser-native deflate-raw; no external library/CDN.
 async function docxText(file){const bytes=new Uint8Array(await file.arrayBuffer()),view=new DataView(bytes.buffer);let end=-1;
@@ -222,9 +254,35 @@ async function pdfText(file){
  if(!result.trim())throw Error('Dieses PDF enthält keinen erkennbaren Text (möglicherweise ein Scan). OCR ist noch nicht eingebaut.');
  return result;
 }
-upload.onchange=async()=>{const file=upload.files?.[0];upload.value='';if(!file)return;try{if(file.size>3e6)throw Error('Die Datei ist größer als 3 MB. Bitte teile sie in kleinere Dokumente.');const ext=file.name.split('.').at(-1).toLowerCase();if(!['docx','md','markdown','txt','pdf'].includes(ext))throw Error('Bitte PDF, Word-DOCX, Markdown oder TXT verwenden.');const text=(ext==='pdf'?await pdfText(file):ext==='docx'?await docxText(file):await file.text()).replace(/^\ufeff/,'');if(!text.trim())throw Error('Die Datei hat keinen auslesbaren Text.');if(!canStoreDoc({text}))return;
- const title=file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' '),id=newId();if(!Array.isArray(data.knowledgeDocuments))data.knowledgeDocuments=[];data.knowledgeDocuments.push({id,folderId:route.folderId,title,text,sourceName:file.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),review:{}});save();changeRoute({mode:'reader',docId:id});notice('Zusammenfassung importiert')
- }catch(error){alert('Datei konnte nicht importiert werden: '+error.message)}};
+let pdfAttachTarget=null;
+async function checkPdfFile(file){if(file.size>25*1024*1024)throw Error('PDF größer als 25 MB. Bitte verkleinern.');if(!file.size)throw Error('Die PDF-Datei ist leer.');const head=new TextDecoder('latin1').decode(await file.slice(0,1024).arrayBuffer());if(!head.includes('%PDF-'))throw Error('Die ausgewählte Datei ist kein lesbares PDF.');}
+upload.onchange=async()=>{const file=upload.files?.[0],target=pdfAttachTarget;upload.value='';pdfAttachTarget=null;if(!file)return;
+ try{
+ const ext=file.name.split('.').at(-1).toLowerCase();
+ if(target&&ext!=='pdf')throw Error('Bitte eine PDF-Datei auswählen.');
+ if(!['docx','md','markdown','txt','pdf'].includes(ext))throw Error('Bitte PDF, Word-DOCX, Markdown oder TXT verwenden.');
+ if(ext==='pdf'){
+  await checkPdfFile(file);
+  const existing=target?resolveDoc(target):null;
+  if(target&&!existing)throw Error('Das Dokument zum Verknüpfen wurde nicht gefunden.');
+  const id=existing?.id||newId();
+  if(!existing&&currentDocTextSize()+500>820000)throw Error('Cloud-Speichergrenze erreicht. Bitte zuerst ein Backup anlegen.');
+  await putPdf(id,file); // The upload succeeds even when PDF.js cannot read its text.
+  if(existing&&!existing.legacy){const d=docs().find(x=>x.id===id);d.fileType='pdf';d.pdfStorage='device';d.pdfSize=file.size;d.sourceName=file.name;d.updatedAt=new Date().toISOString()}
+  else if(!existing){if(!Array.isArray(data.knowledgeDocuments))data.knowledgeDocuments=[];const title=file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' ');data.knowledgeDocuments.push({id,folderId:route.folderId,title,text:'',sourceName:file.name,fileType:'pdf',pdfStorage:'device',pdfSize:file.size,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),review:{}})}
+  save();changeRoute({mode:'reader',docId:id});notice('Original-PDF gespeichert');return;
+ }
+ if(file.size>3e6)throw Error('Die Datei ist größer als 3 MB. Bitte teile sie in kleinere Dokumente.');
+ const text=(ext==='docx'?await docxText(file):await file.text()).replace(/^\ufeff/,'');if(!text.trim())throw Error('Die Datei hat keinen auslesbaren Text.');if(!canStoreDoc({text}))return;
+ const title=file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' '),id=newId();if(!Array.isArray(data.knowledgeDocuments))data.knowledgeDocuments=[];data.knowledgeDocuments.push({id,folderId:route.folderId,title,text,sourceName:file.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),review:{}});save();changeRoute({mode:'reader',docId:id});notice('Dokument importiert')
+ }catch(error){alert('Datei konnte nicht importiert werden: '+error.message)}
+};
+async function extractPdfForStudy(){const d=resolveDoc(route.docId);if(!d||!isPdf(d))return;const record=await pdfRecord(d.id);if(!record){alert('Bitte zuerst die Original-PDF auf diesem Gerät zuordnen.');return}
+ const status=document.getElementById('kb32PdfStatus');if(status)status.textContent='PDF-Text wird ausgelesen …';
+ try{const file=new File([record.blob],record.name||'Datei.pdf',{type:'application/pdf'});const text=await pdfText(file);if(!canStoreDoc({text},d))return;const item=docs().find(x=>x.id===d.id);if(!item)throw Error('Das Dokument wurde nicht gefunden.');item.text=text;item.updatedAt=new Date().toISOString();save();render();notice('Text übernommen. Unter Uni sind die Abschnitte jetzt lernbar.')}
+ catch(e){if(status)status.textContent='Original-PDF bleibt gespeichert. Text konnte nicht ausgelesen werden: '+e.message;alert('Original-PDF bleibt gespeichert. Texterkennung: '+e.message)}
+}
+
 // Delegate only new data-kb-action controls; legacy knowledge code does not match them.
 document.addEventListener('click',e=>{const b=e.target.closest?.('[data-kb-action]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();const act=b.dataset.kbAction,id=b.dataset.id;
  switch(act){case'backone':oneLevelUp();break;case'home':changeRoute({rootId:null,folderId:null,docId:null,mode:'library',filter:''});break;
@@ -233,14 +291,15 @@ document.addEventListener('click',e=>{const b=e.target.closest?.('[data-kb-actio
  case'backfolder':changeRoute({mode:'folder',docId:null});break;
  case'newroot':editFolder(null,null);break;case'newfolder':editFolder(null,route.folderId);break;case'editfolder':editFolder(id);break;
  case'newdoc':editDoc();break;case'editdoc':editDoc(route.docId);break;case'opendoc':{const d=resolveDoc(id);if(!d)return;const f=node(d.folderId);changeRoute({rootId:ancestor(f)?.id,folderId:d.folderId,docId:id,mode:'reader'});break}
- case'upload':upload.click();break;case'download':downloadDoc();break;
+ case'upload':pdfAttachTarget=null;upload.click();break;case'pdfreattach':pdfAttachTarget=route.docId;upload.accept='.pdf,application/pdf';upload.click();upload.accept='.md,.markdown,.txt,.docx,.pdf,application/pdf,text/markdown,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document';break;case'pdfdownload':void downloadOriginalPdf().catch(e=>alert('PDF konnte nicht geöffnet werden: '+e.message));break;case'pdfextract':void extractPdfForStudy().catch(e=>alert('Texterkennung fehlgeschlagen: '+e.message));break;case'download':downloadDoc();break;
  case'jump':document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'});break;
  case'study':studyCard=null;answerOpen=false;changeRoute({rootId:uni()?.id,folderId:uni()?.id,docId:null,mode:'study'});break;
  case'studyexit':answerOpen=false;studyCard=null;changeRoute({rootId:uni()?.id,folderId:uni()?.id,docId:null,mode:'folder'});break;
  case'reveal':answerOpen=true;render();break;
  case'rate':{if(!answerOpen)return;const c=cardForStudy();if(c&&['again','hard','good','easy'].includes(b.dataset.grade))rateCard(c,b.dataset.grade);break}
  }} ,true);
-document.addEventListener('input',e=>{if(e.target?.id==='kb28Search'){route.filter=e.target.value;saveRoute();const f=node(route.folderId);const matches=docsHere(f?.id).filter(d=>d.title.toLocaleLowerCase('de').includes(route.filter.toLocaleLowerCase('de')));document.getElementById('kb28DocumentList').innerHTML=matches.map(docCard).join('')||'<p class="kb28-empty">Keine passenden Dokumente.</p>'}},true);
+document.addEventListener('input',e=>{if(e.target?.id==='kb32CollectionEditor'){const f=node(route.folderId);if(f&&!inUni(f)){f.body=e.target.value;f.updatedAt=new Date().toISOString();notesPending=true;clearTimeout(notesTimer);const label=document.getElementById('kb32NoteStatus');if(label)label.textContent='Speichert …';notesTimer=setTimeout(flushCollectionNotes,800)}return}if(e.target?.id==='kb28Search'){route.filter=e.target.value;saveRoute();const f=node(route.folderId);const matches=(inUni(f)?docsHere(f?.id):docs().filter(d=>d.folderId===f?.id)).filter(d=>d.title.toLocaleLowerCase('de').includes(route.filter.toLocaleLowerCase('de')));document.getElementById('kb28DocumentList').innerHTML=matches.map(docCard).join('')||'<p class="kb28-empty">Keine passenden Dokumente.</p>'}},true);
+window.addEventListener('pagehide',flushCollectionNotes);document.addEventListener('visibilitychange',()=>{if(document.hidden)flushCollectionNotes()});
 // The visible Wissensbaum tab is also a reliable "back to library overview" control.
 // Run in capture phase before legacy tab handlers on the button.
 document.addEventListener('click',e=>{
@@ -331,4 +390,26 @@ const kb31Style=document.createElement('style');kb31Style.textContent=String.raw
 .kb31-category-editor{width:min(94vw,540px)}
 @media(max-width:680px){.kb31-library .kb28-rootgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kb31-library .kb28-root{min-height:105px}.kb31-library .kb28-root-main{min-height:105px;padding:13px}.kb31-library .kb28-root-main strong{font-size:14px}.kb31-folder-page .kb28-foldergrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.kb31-folder-page .kb28-folder-main{padding:9px 31px 9px 8px;gap:6px}.kb31-folder-page .kb28-folder-glyph{width:30px;height:32px;font-size:18px}.kb31-folder-page .kb28-folder-text strong{font-size:12px}.kb31-folder-page .kb28-chevron{display:none}.kb31-emoji-grid{grid-template-columns:repeat(7,minmax(0,1fr))}}
 `;document.head.append(kb31Style);
+const kb32Style=document.createElement('style');kb32Style.textContent=String.raw`
+/* v3.2: one knowledge area per row and a document-first reading layout */
+.kb31-library .kb28-rootgrid{display:grid;grid-template-columns:minmax(0,1fr)!important;gap:9px}
+.kb31-library .kb28-root{min-height:74px!important;border-radius:15px}
+.kb31-library .kb28-root-main{display:flex;flex-direction:row;align-items:center;gap:16px;padding:13px 52px 13px 18px!important;min-height:74px!important}
+.kb31-library .kb28-root-icon{font-size:30px;margin:0;min-width:38px;text-align:center}
+.kb31-library .kb28-root-main strong{font-size:16px}
+.kb32-collection{background:#fff;border:1px solid #dde7db;border-radius:15px;padding:14px 15px;margin:20px 0 6px}
+.kb32-collection-head{display:flex;align-items:center;gap:12px;justify-content:space-between;margin-bottom:10px}
+.kb32-collection-head h3{font-size:14px;margin:0;color:#365a42}
+.kb32-collection-head span{font-size:11px;color:#79917e}
+#kb32CollectionEditor{display:block;width:100%;min-height:290px;max-height:75vh;resize:vertical;border:0;border-radius:7px;background:#fff;padding:8px;color:#2c4434;font:inherit;font-size:14px;line-height:1.65;outline-offset:3px}
+#kb32CollectionEditor:focus{outline:2px solid #c6dfcb}
+.kb32-pdf-box{background:#fff;border:1px solid #dfebdf;padding:14px;border-radius:15px;margin-bottom:15px}
+.kb32-pdf-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.kb32-pdf-toolbar strong{flex:1;min-width:100px;font-size:14px}
+.kb32-pdf-toolbar button,.kb32-pdf-toolbar .btn{font-size:12px;padding:8px 9px;text-decoration:none}
+.kb32-pdf-status{font-size:12px;color:#5b7665;margin:11px 0}
+#kb32PdfFrame{width:100%;height:72vh;min-height:430px;border:1px solid #dce7de;border-radius:10px;background:#fafafa}
+.kb32-pdf-box>small{display:block;color:#7e8b81;font-size:11px;margin-top:10px;line-height:1.5}
+@media(max-width:680px){.kb31-library .kb28-rootgrid{grid-template-columns:minmax(0,1fr)!important}.kb31-library .kb28-root-main{padding:12px 42px 12px 12px!important;min-height:70px!important}.kb31-library .kb28-root{min-height:70px!important}.kb32-collection{padding:12px}.kb32-collection-head span{font-size:10px}#kb32CollectionEditor{min-height:320px}#kb32PdfFrame{height:60vh;min-height:390px}}
+`;document.head.append(kb32Style);
 })();
