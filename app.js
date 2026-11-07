@@ -4,7 +4,7 @@
 const V1_UNDO_KEY='brainhome-v10-undo';
 const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','knowledgeDocuments','taskEvents','vouchers'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
-const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];return result};
+const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];result.taxAllowance=Number.isFinite(o?.taxAllowance)?o.taxAllowance:null;return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
 const v1Html=s=>esc(s);
 let v1Undo=[],v1Redo=[],v1Last=v1Json(data),v1SuppressHistory=false,v1ActiveSearch='';
@@ -43,6 +43,21 @@ save=function(){
    queueMicrotask(()=>window.BHCloud?.markDirty?.());
  }
  v1OldSave();
+ // Verify the actual persistent copy. Otherwise a full browser store can make
+ // newly entered ideas appear saved until the next restart.
+ try{
+   if(localStorage.getItem('brainhome-v02')!==JSON.stringify(data))throw new Error('Lokaler Speicher hat den neuen Stand nicht übernommen.');
+   document.getElementById('bh33SaveWarning')?.remove();
+ }catch(err){
+   let box=document.getElementById('bh33SaveWarning');
+   if(!box){
+     box=document.createElement('div');box.id='bh33SaveWarning';
+     box.style.cssText='position:fixed;top:8px;left:8px;right:8px;z-index:2147483000;background:#fff0dc;border:2px solid #bb6139;color:#5e3021;border-radius:12px;padding:13px 16px;box-shadow:0 6px 35px #0003;font:600 13px/1.5 system-ui,sans-serif';
+     box.innerHTML='<span>⚠ Speichern fehlgeschlagen! Bitte die App nicht schließen. Sichere jetzt alle Daten als JSON.</span> <button type="button" style="padding:7px 9px;border-radius:8px;background:#fff;border:1px solid #a35f42;color:#653824">Jetzt Rettungs-Backup herunterladen</button>';
+     box.querySelector('button').onclick=()=>window.BH10?.exportBackup?.();document.body.append(box);
+   }
+   console.error('BrainHome: dauerhafte Speicherung fehlgeschlagen',err);
+ }
 };
 function v1UndoAction(){if(!v1Undo.length){notice('Nichts rückgängig zu machen');return}v1Redo.push(v1Last);const snap=JSON.parse(v1Undo.pop());v1Apply(snap,{history:false,cloud:true});notice('Rückgängig gemacht')}
 function v1RedoAction(){if(!v1Redo.length){notice('Nichts zum Wiederholen');return}v1Undo.push(v1Last);const snap=JSON.parse(v1Redo.pop());v1Apply(snap,{history:false,cloud:true});notice('Wiederholt')}
@@ -51,6 +66,8 @@ function v1Apply(payload,{history=true,cloud=true}={}){
  const oldTab=data.tab,oldActive=data.active;
  if(history){v1Undo.push(v1Last);v1Undo=v1Undo.slice(-18);v1Redo=[]}
  const cleaned=v1CleanObject(payload);
+ // Old backups did not contain this scalar; keep a current local setting instead of erasing it.
+ if(!Object.prototype.hasOwnProperty.call(payload,'taxAllowance'))cleaned.taxAllowance=Number.isFinite(data.taxAllowance)?data.taxAllowance:null;
  data={...data,...cleaned,tab:oldTab==='trash'||oldTab==='search'?'home':oldTab,active:oldActive};
  if(data.active&&!data.nodes.some(n=>n.id===data.active))data.active=null;
  for(const root of data.nodes.filter(n=>n.parent===null))if(!root.kind)root.kind='category';
@@ -2275,7 +2292,7 @@ openEditor=function(id,parent){
  const select=document.getElementById('parent');
  const selected=(n?.parent&&isCategory(get(n.parent))?n.parent:categoryOf(n)?.id)||normalized?.id||(parent==='inbox'?'inbox':null);
  const opts=[`<option value="inbox">Inbox · Eingang</option>`];
- for(const category of data.nodes.filter(x=>isCategory(x)&&x.id!==id&&!descendants(id||'').includes(x.id)&&!isSpecialTreeNode(x)&&!hiddenAncestor(x)))opts.push(`<option value="${safe(category.id)}">${safe(path(category))}</option>`);
+ for(const category of data.nodes.filter(x=>isCategory(x)&&x.id!==id&&!descendants(id||'').includes(x.id)&&((x.privateSection===true)||(!isSpecialTreeNode(x)&&!hiddenAncestor(x)))))opts.push(`<option value="${safe(category.id)}">${safe(path(category))}</option>`);
  select.innerHTML=opts.join('');
  select.value=selected||'inbox';
  if(!id&&normalized?.id){document.getElementById('kind').value='task';document.getElementById('checkable').checked=true;updateEditorFields()}
@@ -2466,4 +2483,99 @@ function addStepHistory(){
 const renderWithHistory=render;
 render=function(...args){renderWithHistory(...args);addStepHistory()};
 normalizeTasks();render();
+})();
+
+
+/* BrainHome 3.3 – Recovery-first editor fix and orphaned data visibility.
+ * Existing node IDs, parent links, and cloud payload are unchanged on startup.
+ * No automatic migration: missing parents are shown for manual recovery instead.
+ */
+(() => {
+ 'use strict';
+ const host=document.getElementById('app');
+ const html=s=>esc(s??'');
+ const nodes=()=>Array.isArray(data.nodes)?data.nodes:[];
+ const isOrphan=n=>n && n.parent!==null && n.parent!=='inbox' && (!n.parent || !get(n.parent));
+ const orphans=()=>nodes().filter(isOrphan);
+ const allCategories=()=>nodes().filter(n=>isCategory(n));
+ const latestBackup=()=>{
+   const content=JSON.stringify(window.BH10.exportData(),null,2);
+   const blob=new Blob([content],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+   a.href=url;a.download='BrainHome-Rettung-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
+ };
+ function addMissingChoice(select,parentId) {
+   if(!parentId||parentId==='inbox'||!get(parentId)||!isCategory(get(parentId)))return;
+   if(![...select.options].some(option=>option.value===parentId)){
+     const opt=new Option(path(get(parentId)),parentId);select.add(opt);
+   }
+   select.value=parentId;
+ }
+ // Previous v2.9 had filtered privateSection categories out of the selector,
+ // causing <select>.value === '' and subsequently invisible, orphaned tasks.
+ const oldEditor=openEditor;
+ openEditor=function(id,parent){
+   oldEditor(id,parent);
+   const selected=document.getElementById('parent');
+   const existing=id?get(id):null;
+   const intended=existing?.parent||parent||newParent;
+   addMissingChoice(selected,intended);
+ };
+ document.getElementById('editForm').addEventListener('submit',e=>{
+   const selected=document.getElementById('parent');
+   if(selected.value && (selected.value==='inbox' || !!get(selected.value)))return;
+   const record=editId?get(editId):null;
+   const intended=record?.parent||newParent;
+   addMissingChoice(selected,intended);
+   if(!selected.value){
+     e.preventDefault();e.stopImmediatePropagation();
+     alert('Dieser Eintrag hat kein gültiges Ziel. Bitte wähle eine Kategorie, bevor du speicherst. Deine Eingabe bleibt im Fenster stehen.');
+   }
+ },true);
+ // A persisted-but-unreachable entry must never be silently discarded.
+ // Show it on the Privat page and on Home rather than changing its parent.
+ function rescueOptions(n){
+   const banned=new Set([n.id,...descendants(n.id)]);
+   return '<option value="">Kategorie auswählen …</option><option value="inbox">Inbox</option>'+allCategories().filter(c=>!banned.has(c.id)).map(c=>`<option value="${html(c.id)}">${html(path(c))}</option>`).join('');
+ }
+ function showRecovery(){
+   host.querySelector('#bh33RecoveryPanel')?.remove();
+   host.querySelector('#bh33RecoveryAlert')?.remove();
+   const missing=orphans();if(!missing.length)return;
+   const root=get(data.active),privateArea=privateRoot();
+   const inPrivate=data.tab==='tree'&&root&&privateArea&&root.id===privateArea.id;
+   if(data.tab==='home'||data.tab==='projects'){
+     const banner=document.createElement('div');banner.id='bh33RecoveryAlert';banner.className='bh33-alert';
+     banner.innerHTML=`<strong>⚠ ${missing.length} Einträge ohne Zuordnung gefunden</strong><span>Sie sind noch gespeichert, aber nicht im Baum sichtbar.</span><button type="button" data-bh33-open-recovery>In Privat ansehen</button>`;
+     host.prepend(banner);
+   }
+   if(!inPrivate)return;
+   const section=document.createElement('section');section.id='bh33RecoveryPanel';section.className='bh33-recovery';
+   section.innerHTML=`<details open><summary>🛟 ${missing.length} nicht zugeordnete Einträge wiederfinden</summary><p>Diese Einträge wurden gespeichert, haben aber keine gültige Kategorie. Nichts wird automatisch verändert.</p><button type="button" class="btn" data-bh33-backup>Vollständiges Rettungs-JSON herunterladen</button><div class="bh33-recovery-list">${missing.map(n=>`<div class="bh33-recovery-item"><div><strong>${html(n.name)}</strong><small>${html(n.notes||'')}${n.parent?` · Alte Zuordnung: ${html(n.parent)}`:''}</small></div><select aria-label="Ziel für ${html(n.name)}" data-bh33-target="${html(n.id)}">${rescueOptions(n)}</select><button type="button" class="btn" data-bh33-rescue="${html(n.id)}">Einsortieren</button></div>`).join('')}</div></details>`;
+   host.append(section);
+ }
+ const oldRender=render;
+ render=function(...args){oldRender(...args);showRecovery()};
+ document.addEventListener('click',e=>{
+   const open=e.target.closest?.('[data-bh33-open-recovery]');if(open){
+     e.preventDefault();e.stopImmediatePropagation();const privateArea=privateRoot();if(privateArea){openProject(privateArea.id);document.getElementById('bh33RecoveryPanel')?.scrollIntoView({block:'start'})}return;
+   }
+   if(e.target.closest?.('[data-bh33-backup]')){e.preventDefault();e.stopImmediatePropagation();latestBackup();return}
+   const btn=e.target.closest?.('[data-bh33-rescue]');if(!btn)return;
+   e.preventDefault();e.stopImmediatePropagation();const n=get(btn.dataset.bh33Rescue);
+   const select=host.querySelector(`[data-bh33-target="${CSS.escape(btn.dataset.bh33Rescue)}"]`);
+   const parent=select?.value;if(!n||!isOrphan(n)||!parent||(parent!=='inbox'&&!get(parent)))return alert('Bitte ein gültiges Ziel auswählen.');
+   // Store one local, pre-repair snapshot if storage allows it, in addition to
+   // the explicit JSON export available above. Never overwrite earlier snapshots.
+   try{const key='brainhome-v33-before-repair-'+new Date().toISOString();localStorage.setItem(key,JSON.stringify(window.BH10.exportData()))}catch(err){console.warn('Vorherige Version zusätzlich lokal sichern',err)}
+   n.parent=parent;save();render();notice('Eintrag wieder sichtbar: '+n.name);
+ },true);
+ const css=document.createElement('style');css.textContent=`
+ .bh33-alert,.bh33-recovery{border:1px solid #d8aa7b;border-radius:13px;background:#fff9f0;padding:12px 15px;margin:12px 0;color:#453a2f}
+ .bh33-alert{display:flex;flex-wrap:wrap;gap:9px;align-items:center}.bh33-alert span{font-size:12px;flex:1;min-width:170px}.bh33-alert button{background:#fff;border:1px solid #dabf9b;border-radius:8px;padding:7px 9px}
+ .bh33-recovery summary{cursor:pointer;font-weight:650}.bh33-recovery p{font-size:12px;margin:8px 0}.bh33-recovery-list{display:grid;gap:8px;margin-top:12px}
+ .bh33-recovery-item{display:grid;grid-template-columns:minmax(130px,1fr) minmax(150px,1fr) auto;align-items:center;gap:8px;padding:9px 0;border-top:1px solid #ebddca}
+ .bh33-recovery-item strong{display:block;font-size:13px;overflow-wrap:anywhere}.bh33-recovery-item small{display:block;font-size:11px;color:#766b5b;white-space:pre-wrap;max-height:90px;overflow:auto}.bh33-recovery select{min-width:0;width:100%;padding:8px;border:1px solid #b6cdbb;border-radius:8px}
+ @media(max-width:580px){.bh33-recovery-item{grid-template-columns:1fr auto}.bh33-recovery-item>div{grid-column:1/-1}}
+ `;document.head.append(css);
+ render();
 })();
