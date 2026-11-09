@@ -2581,119 +2581,221 @@ normalizeTasks();render();
 })();
 
 
-/* BrainHome 3.4 — Sport & Essen. Existing nodes / recipes / sync are never rewritten. */
+/* BrainHome 3.5 — Sport und Essen: pastels, set-by-set log, recipebook, chart. */
 (() => {
 'use strict';
 const host=document.getElementById('app');
-const safe=s=>esc(s??'');
-const allTypes=()=>Array.isArray(data.trainingTypes)?data.trainingTypes:(data.trainingTypes=[]);
-const allLogs=()=>Array.isArray(data.trainingLog)?data.trainingLog:(data.trainingLog=[]);
-const allMeals=()=>Array.isArray(data.mealSchedule)?data.mealSchedule:(data.mealSchedule=[]);
-const isSportRoot=n=>!!n&&n.parent===null&&/^sport\s*(?:und|&|\+)\s*essen$/i.test(n.name.trim());
+const safe=x=>esc(x??'');
+const types=()=>Array.isArray(data.trainingTypes)?data.trainingTypes:(data.trainingTypes=[]);
+const logs=()=>Array.isArray(data.trainingLog)?data.trainingLog:(data.trainingLog=[]);
+const meals=()=>Array.isArray(data.mealSchedule)?data.mealSchedule:(data.mealSchedule=[]);
+const isSportRoot=n=>!!n&&n.parent===null&&/^sport\s*(?:und|&|\+)\s*essen$/i.test(String(n.name||'').trim());
 const sportRoot=()=>data.nodes.find(isSportRoot);
 const isSportView=()=>data.tab==='tree'&&!!get(data.active)&&isSportRoot(get(data.active));
-const dateKey=(date=new Date())=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
-const plusDays=(date,amount)=>{const d=new Date(date+'T12:00:00');d.setDate(d.getDate()+amount);return dateKey(d)};
-const formatDate=d=>new Date(d+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short'});
-const formatWeight=n=>new Intl.NumberFormat('de-DE',{maximumFractionDigits:2}).format(n);
-const colorValue=s=>/^#[\da-f]{6}$/i.test(String(s||''))?s:'#8fbd9a';
+const dateKey=(d=new Date())=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+const plusDays=(s,amount)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+amount);return dateKey(d)};
+const formatDate=s=>new Date(s+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short'});
+const weightText=w=>new Intl.NumberFormat('de-DE',{maximumFractionDigits:2}).format(w);
+const palette=[
+ ['Salbei','#dcebdd'],['Flieder','#eee5f8'],['Himmelblau','#dcecf3'],
+ ['Sand','#f7ebd2'],['Altrosa','#f8e4ea'],['Mint','#e0f0e9'],
+ ['Apricot','#f7e7dc'],['Lavendelblau','#e2e7f5']
+];
+const colorValue=s=>/^#[\da-f]{6}$/i.test(String(s||''))?s:'#dcebdd';
 let currentSection='sport';try{currentSection=localStorage.getItem('brainhome-v34-current')==='food'?'food':'sport'}catch{}
-let statType='all';
-function typeNames(){const set=new Set();for(const n of allTypes())if(n.name?.trim())set.add(n.name.trim());for(const x of allLogs())if(x.exercise?.trim())set.add(x.exercise.trim());return [...set].sort((a,b)=>a.localeCompare(b,'de'))}
-function selectedLog(){return allLogs().filter(x=>statType==='all'||x.exercise===statType)}
-function statValues(records){const dates=new Set(records.map(n=>n.date));const weighted=records.filter(n=>n.weight!==null&&Number.isFinite(Number(n.weight))&&Number(n.weight)>=0);const setSum=weighted.reduce((sum,n)=>sum+Number(n.sets||1),0);return{count:records.length,days:dates.size,average:setSum?weighted.reduce((sum,n)=>sum*1+Number(n.weight)*Number(n.sets||1),0)/setSum:null,max:weighted.length?Math.max(...weighted.map(n=>Number(n.weight))):null}}
-function metric(label,value,subtitle=''){return `<div class="bh34-metric"><small>${safe(label)}</small><strong>${safe(value)}</strong>${subtitle?`<small>${safe(subtitle)}</small>`:''}</div>`}
-function workoutUI(){const names=typeNames(),entries=selectedLog().slice().sort((a,b)=>(b.at||'').localeCompare(a.at||''));const s=statValues(selectedLog());const byType=names.map(name=>({name,stats:statValues(allLogs().filter(n=>n.exercise===name))}));
- return `<section class="bh34-body" id="bh34Workout"><div class="bh34-section-title"><h3>Training</h3><button type="button" class="btn bh34-mini-btn" data-bh34-new-exercise>＋ Trainingsart</button></div>
- <div class="bh34-stat-head"><label for="bh34StatSelect">Auswertung</label><select id="bh34StatSelect"><option value="all" ${statType==='all'?'selected':''}>Alle Geräte & Trainingsarten</option>${names.map(name=>`<option value="${safe(name)}" ${name===statType?'selected':''}>${safe(name)}</option>`).join('')}</select></div>
- <div class="bh34-metrics">${metric('Einträge',s.count)}${metric('Trainingstage',s.days)}${metric('Ø Gewicht',s.average==null?'—':formatWeight(s.average)+' kg')}${metric('Max. Gewicht',s.max==null?'—':formatWeight(s.max)+' kg')}</div>
- ${statType==='all'&&byType.length?`<div class="bh34-overview">${byType.map(({name,stats})=>`<div class="bh34-summary-row"><span>${safe(name)}</span><small>${stats.count}× · Ø ${stats.average==null?'—':formatWeight(stats.average)+' kg'} · Max ${stats.max==null?'—':formatWeight(stats.max)+' kg'}</small></div>`).join('')}</div>`:''}
- <form id="bh34TrainingForm" class="bh34-training-form"><label>Gerät / Trainingsart<input name="exercise" list="bh34ExerciseList" autocomplete="off" maxlength="120" placeholder="z. B. Beinpresse" required></label><datalist id="bh34ExerciseList">${names.map(n=>`<option value="${safe(n)}"></option>`).join('')}</datalist><label>Gewicht (kg) <small>optional</small><input name="weight" inputmode="decimal" type="number" min="0" max="1500" step="any" placeholder="—"></label><label>Sätze<input name="sets" inputmode="numeric" type="number" min="1" max="99" value="" placeholder="3" required></label><label>Wdh. / Satz<input name="reps" inputmode="numeric" type="number" min="1" max="1000" value="" placeholder="8" required></label><button class="btn primary" type="submit">＋ Eintragen</button></form>
- <div class="bh34-section-title"><h4>Trainingstagebuch</h4><span class="bh34-muted">${entries.length} Einträge</span></div><div class="bh34-log">${entries.slice(0,120).map(item=>`<div class="bh34-log-row"><div><strong>${safe(item.exercise)}</strong><small>${safe(formatDate(item.date))} · ${safe(item.sets)} × ${safe(item.reps)}${item.weight===null?' · Eigengewicht':' · '+safe(formatWeight(item.weight))+' kg'}</small></div><button type="button" class="bh34-delete" data-bh34-delete-log="${safe(item.id)}" aria-label="Eintrag löschen">×</button></div>`).join('')||'<p class="bh34-empty">Deine ersten Trainingsdaten erscheinen hier.</p>'}</div></section>`;
+let selectedType='all';
+let historyOpen=false;try{historyOpen=localStorage.getItem('brainhome-v35-history-open')==='yes'}catch{}
+function typeNames(){const out=new Set();for(const t of types())if(t.name?.trim())out.add(t.name.trim());for(const e of logs())if(e.exercise?.trim())out.add(e.exercise.trim());return [...out].sort((a,b)=>a.localeCompare(b,'de'))}
+function shownLogs(){return logs().filter(e=>selectedType==='all'||e.exercise===selectedType)}
+// Read v3.4 records without altering them. V3.5 stores individual reps and weight for every set.
+function details(e){
+ if(Array.isArray(e.setDetails)&&e.setDetails.length)return e.setDetails.map(r=>({weight:r.weight==null||r.weight===''?null:Number(r.weight),reps:Number(r.reps)||0}));
+ const count=Math.max(1,Math.min(99,Number(e.sets)||1));
+ return Array.from({length:count},()=>({weight:e.weight==null?null:Number(e.weight),reps:Number(e.reps)||0}));
 }
-function hasRoot(n,root){let curr=n;const seen=new Set();while(curr&&!seen.has(curr.id)){seen.add(curr.id);if(curr.id===root.id)return true;curr=curr.parent?get(curr.parent):null}return false}
+function statistics(records){
+ const days=new Set(records.map(e=>e.date)),all=records.flatMap(details);
+ const weighted=all.filter(s=>s.weight!==null&&Number.isFinite(s.weight)&&s.weight>=0);
+ return {count:records.length,days:days.size,sets:all.length,average:weighted.length?weighted.reduce((a,s)=>a+s.weight,0)/weighted.length:null,max:weighted.length?Math.max(...weighted.map(s=>s.weight)):null};
+}
+function metric(label,value){return `<div class="bh34-metric"><small>${safe(label)}</small><strong>${safe(value)}</strong></div>`}
+function chart(records,names){
+ if(!records.length)return `<div class="bh35-chart-empty">Noch keine Trainingsdaten für diese Auswahl.</div>`;
+ let dataPoints=[],unit='',title='';
+ if(selectedType==='all'){
+  dataPoints=names.map(name=>({name,value:records.filter(e=>e.exercise===name).length})).filter(p=>p.value>0).sort((a,b)=>b.value-a.value);
+  title='Wie oft trainiert';unit='Einträge';
+ }else{
+  const daily=new Map();for(const e of records){const d=e.date||dateKey();const arr=daily.get(d)||[];arr.push(...details(e));daily.set(d,arr)}
+  const hasWeights=[...daily.values()].some(sets=>sets.some(s=>s.weight!==null&&Number.isFinite(s.weight)));
+  dataPoints=[...daily].sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([date,sets])=>({name:formatDate(date).replace(/\./g,''),value:hasWeights?Math.max(0,...sets.filter(s=>s.weight!==null).map(s=>s.weight)):Math.max(0,...sets.map(s=>s.reps))}));
+  title=hasWeights?'Maximalgewicht nach Trainingstag':'Maximale Wiederholungen nach Trainingstag';unit=hasWeights?'kg':'Wdh.';
+ }
+ const ceiling=Math.max(1,...dataPoints.map(p=>p.value));
+ return `<section class="bh35-chart" aria-label="Trainingsdiagramm"><div class="bh35-chart-title">${safe(title)}</div><div class="bh35-bars">${dataPoints.map(p=>`<div class="bh35-bar-line"><span class="bh35-bar-label" title="${safe(p.name)}">${safe(p.name)}</span><div class="bh35-bar-track"><div class="bh35-bar-fill" style="width:${Math.max(1,100*p.value/ceiling)}%"></div></div><span class="bh35-bar-value">${safe(weightText(p.value))}${selectedType==='all'?'':' '+unit}</span></div>`).join('')}</div></section>`;
+}
+function inputRows(count,preserved=[]){
+ if(!Number.isInteger(count)||count<1||count>40)return '<p class="bh35-set-placeholder">Satzanzahl eingeben, dann erscheinen die einzelnen Sätze.</p>';
+ return Array.from({length:count},(_,i)=>`<div class="bh35-set-row"><span class="bh35-set-index">${i+1}.</span><label>kg <input type="number" inputmode="decimal" min="0" max="1500" step="any" placeholder="optional" name="weight-${i}" value="${safe(preserved[i]?.weight||'')}"></label><label>Wiederholungen <input type="number" inputmode="numeric" min="1" max="1000" step="1" required name="reps-${i}" placeholder="z. B. 8" value="${safe(preserved[i]?.reps||'')}"></label></div>`).join('');
+}
+function workoutUI(){
+ const names=typeNames(),records=shownLogs(),ordered=records.slice().sort((a,b)=>(b.at||'').localeCompare(a.at||'')),s=statistics(records);
+ return `<section class="bh34-body" id="bh34Workout">
+  <div class="bh34-section-title"><h3>Training</h3><button type="button" class="btn bh34-mini-btn" data-bh35-new-exercise>＋ Trainingsart</button></div>
+  <div class="bh34-stat-head"><label for="bh35StatSelect">Auswertung</label><select id="bh35StatSelect"><option value="all" ${selectedType==='all'?'selected':''}>Alle Geräte & Trainingsarten</option>${names.map(name=>`<option value="${safe(name)}" ${selectedType===name?'selected':''}>${safe(name)}</option>`).join('')}</select></div>
+  ${chart(records,names)}
+  <div class="bh34-metrics">${metric('Trainingseinträge',s.count)}${metric('Trainingstage',s.days)}${metric('Ø Gewicht',s.average==null?'—':weightText(s.average)+' kg')}${metric('Max. Gewicht',s.max==null?'—':weightText(s.max)+' kg')}</div>
+  <form id="bh35TrainingForm" class="bh35-training-form"><div class="bh35-training-basics"><label>Gerät / Trainingsart<input name="exercise" list="bh35ExerciseList" maxlength="120" autocomplete="off" required placeholder="z. B. Beinpresse"></label><datalist id="bh35ExerciseList">${names.map(n=>`<option value="${safe(n)}"></option>`).join('')}</datalist><label>Sätze<input name="sets" type="number" inputmode="numeric" min="1" max="40" step="1" placeholder="z. B. 3" required></label></div>
+   <div class="bh35-setfields" id="bh35SetFields">${inputRows(0)}</div><button class="btn primary" type="submit">＋ Eintragen</button></form>
+  <details id="bh35History" class="bh35-history" ${historyOpen?'open':''}><summary>Trainingstagebuch <span>${ordered.length} Einträge</span></summary><div class="bh34-log">${ordered.slice(0,200).map(e=>`<div class="bh34-log-row"><div><strong>${safe(e.exercise)}</strong><small>${safe(formatDate(e.date))} · ${details(e).map((s,i)=>`${i+1}. ${s.reps} Wdh.${s.weight==null?'':` · ${weightText(s.weight)} kg`}`).map(safe).join('　|　')}</small></div><button type="button" class="bh34-delete" data-bh35-delete-log="${safe(e.id)}" aria-label="Eintrag löschen">×</button></div>`).join('')||'<p class="bh34-empty">Noch keine Trainingseinträge.</p>'}</div></details>
+ </section>`;
+}
+function hasRoot(n,root){let current=n;const seen=new Set();while(current&&!seen.has(current.id)){seen.add(current.id);if(current.id===root.id)return true;current=current.parent?get(current.parent):null}return false}
+function normalizedLabel(text){return String(text||'').trim().replace(/^[^\p{L}\p{N}]+/gu,'').trim()}
 const recipeParentPattern=/^(?:rezept(?:e|buch|sammlung)?|kochbuch|kochrezepte|gerichte|lieblingsgerichte|lieblingsrezepte|rezepte\s*&\s*ideen)$/i;
-function discoverRecipes(){const priv=privateRoot();if(!priv)return[];const nodes=data.nodes.filter(n=>hasRoot(n,priv));const recipeContainers=nodes.filter(n=>recipeParentPattern.test((n.name||'').trim()));const recipes=new Map();for(const container of recipeContainers){for(const n of nodes){if(n.id===container.id||!hasRoot(n,container)||['pantry','gift'].includes(n.kind))continue;const childCount=kids(n.id).filter(x=>hasRoot(x,container)).length;
-  // Folder nodes are groups, not meals; a leaf with notes can be a recipe.
-  if(n.kind==='category'&&childCount&&!String(n.notes||'').trim())continue;
-  const label=String(n.name||'').trim();if(!label||/^(?:zutaten|schritte|anleitung|notizen)$/i.test(label))continue;
-  recipes.set(n.id,{id:n.id,name:label,notes:n.notes||''});
- }}return [...recipes.values()].sort((a,b)=>a.name.localeCompare(b.name,'de'))}
+const recipeGrouping=/^(?:frühstück|mittag(?:essen)?|abend(?:essen)?|snacks?|süßes|hauptgerichte|beilagen|desserts?|suppen|salate|backen|vegetarisch|vegan)$/i;
+function discoverRecipes(){
+ const priv=privateRoot();if(!priv)return[];
+ const containers=data.nodes.filter(n=>hasRoot(n,priv)&&recipeParentPattern.test(normalizedLabel(n.name)));
+ const recipes=new Map();
+ const visit=(container,depth,seen)=>{
+  if(depth>12||seen.has(container.id))return;seen.add(container.id);
+  for(const n of kids(container.id)){
+   if(['gift','pantry'].includes(n.kind))continue;
+   const name=String(n.name||'').trim();if(!name)continue;
+   if(n.kind==='category'&&recipeGrouping.test(normalizedLabel(name))){visit(n,depth+1,new Set(seen));continue}
+   // A meal can itself be a category containing ingredients or preparation steps.
+   // Include that meal once; do not turn its ingredients into separate meal ideas.
+   if(/^(?:zutaten|zubereitung|anleitung|schritte|notizen)$/i.test(normalizedLabel(name)))continue;
+   recipes.set(n.id,{id:n.id,name,notes:n.notes||''});
+  }
+ };
+ for(const c of containers)visit(c,0,new Set());
+ return [...recipes.values()].sort((a,b)=>a.name.localeCompare(b.name,'de'));
+}
 function recipeFrom(entry,recipes){return recipes.find(r=>r.id===entry?.recipeId)}
 function pickRecipe(recipes,day,excludedIds=[]){if(!recipes.length)return null;const excluded=new Set(excludedIds);const eligible=recipes.filter(r=>!excluded.has(r.id));const pool=eligible.length?eligible:(recipes.length>1?recipes.filter(r=>r.id!==excludedIds.at(-1)):recipes);
- const history=allMeals().filter(e=>e.date!==day&&e.date<day).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,24);
- const weighted=pool.map(r=>{let weight=1;for(let i=0;i<history.length;i++)if(history[i].recipeId===r.id)weight*=i<3?.10:i<7?.35:.82;return{recipe:r,weight:Math.max(.001,weight)}});
- const total=weighted.reduce((sum,v)=>sum+v.weight,0);let cursor=Math.random()*total;for(const item of weighted){cursor-=item.weight;if(cursor<=0)return item.recipe}return weighted[weighted.length-1].recipe;
+ const history=meals().filter(e=>e.date!==day&&e.date<day).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,24);
+ const weighted=pool.map(r=>{let weight=1;for(let i=0;i<history.length;i++)if(history[i].recipeId===r.id)weight*=i<3?.1:i<7?.35:.82;return{recipe:r,weight:Math.max(.001,weight)}});
+ let cursor=Math.random()*weighted.reduce((s,e)=>s+e.weight,0);for(const e of weighted){cursor-=e.weight;if(cursor<=0)return e.recipe}return weighted[weighted.length-1].recipe;
 }
-function setMeal(date,recipe){const arr=allMeals(),existing=arr.find(e=>e.date===date);if(existing){existing.recipeId=recipe.id;existing.recipeName=recipe.name}else arr.push({date,recipeId:recipe.id,recipeName:recipe.name,createdAt:new Date().toISOString()})}
-function ensureTodayMeal(recipes){const day=dateKey();if(!recipes.length||allMeals().some(m=>m.date===day))return;const previous=allMeals().filter(m=>m.date<day&&m.date>=plusDays(day,-7)).map(m=>m.recipeId);const recipe=pickRecipe(recipes,day,previous);if(recipe){setMeal(day,recipe);save()}}
-function foodUI(){const recipes=discoverRecipes();ensureTodayMeal(recipes);const day=dateKey(),today=allMeals().find(n=>n.date===day);const selected=recipeFrom(today,recipes);const seven=Array.from({length:7},(_,i)=>plusDays(day,i));
- return `<section class="bh34-body" id="bh34Meals"><div class="bh34-section-title"><h3>Essen</h3><span class="bh34-muted">${recipes.length} Rezepte aus Privat</span></div>${!recipes.length?`<div class="bh34-empty bh34-recipe-empty"><strong>Ich finde noch kein Rezeptbuch unter Privat.</strong><p>Lege dort eine Kategorie „Rezepte“ oder „Rezeptbuch“ an und füge deine Gerichte als Einträge hinzu. Bestehende Rezepte werden nicht verändert.</p><button type="button" class="btn" data-bh34-open-private>Privat öffnen</button></div>`:`<div class="bh34-today"><small>Heute · ${safe(formatDate(day))}</small><strong>${safe(selected?.name||today?.recipeName||'Noch kein Rezept ausgewählt')}</strong>${today&&!selected?'<small>Dieses Rezept ist in Privat nicht mehr auffindbar.</small>':''}<div class="bh34-today-actions"><button type="button" class="btn primary" data-bh34-reroll>🎲 Neu würfeln</button>${selected?`<button type="button" class="btn" data-bh34-view-recipe="${safe(selected.id)}">Rezept öffnen</button>`:''}</div></div>
- <div class="bh34-section-title"><h4>Deine nächsten 7 Tage</h4><button type="button" class="btn bh34-mini-btn" data-bh34-week>🎲 7 Tage würfeln</button></div><div class="bh34-week">${seven.map(date=>{const meal=allMeals().find(e=>e.date===date),r=recipeFrom(meal,recipes);return `<div class="bh34-week-row ${date===day?'is-today':''}"><small>${safe(formatDate(date))}</small><span>${safe(r?.name||meal?.recipeName||'—')}</span>${meal?`<button type="button" class="bh34-reroll-one" data-bh34-reroll-date="${safe(date)}" title="Diesen Tag neu würfeln" aria-label="${safe(formatDate(date))} neu würfeln">⟳</button>`:''}</div>`}).join('')}</div>`}</section>`;
+function setMeal(date,r){const list=meals(),existing=list.find(x=>x.date===date);if(existing){existing.recipeId=r.id;existing.recipeName=r.name}else list.push({date,recipeId:r.id,recipeName:r.name,createdAt:new Date().toISOString()})}
+function ensureTodayMeal(recipes){const day=dateKey();if(!recipes.length||meals().some(m=>m.date===day))return;const recent=meals().filter(m=>m.date<day&&m.date>=plusDays(day,-7)).map(m=>m.recipeId);const r=pickRecipe(recipes,day,recent);if(r){setMeal(day,r);save()}}
+function foodUI(){const recipes=discoverRecipes();ensureTodayMeal(recipes);const day=dateKey(),today=meals().find(m=>m.date===day),selected=recipeFrom(today,recipes),seven=Array.from({length:7},(_,i)=>plusDays(day,i));
+ return `<section class="bh34-body" id="bh34Meals"><div class="bh34-section-title"><h3>Essen</h3><span class="bh34-muted">${recipes.length} Rezepte</span></div>${!recipes.length?`<div class="bh34-empty"><strong>Ich finde unter Privat noch kein 🍙 Rezeptbuch mit Rezepten.</strong><p>Die Rezeptnamen müssen als Einträge in der Kategorie stehen.</p><button type="button" class="btn" data-bh35-open-private>Privat öffnen</button></div>`:`<div class="bh34-today"><small>Heute · ${safe(formatDate(day))}</small><strong>${safe(selected?.name||today?.recipeName||'Noch kein Rezept ausgewählt')}</strong>${today&&!selected?'<small>Dieses Rezept ist in Privat nicht mehr auffindbar.</small>':''}<div class="bh34-today-actions"><button type="button" class="btn primary" data-bh35-reroll>🎲 Neu würfeln</button>${selected?`<button type="button" class="btn" data-bh35-view-recipe="${safe(selected.id)}">Rezept öffnen</button>`:''}</div></div>
+  <div class="bh34-section-title"><h4>Deine nächsten 7 Tage</h4><button type="button" class="btn bh34-mini-btn" data-bh35-week>🎲 7 Tage würfeln</button></div><div class="bh34-week">${seven.map(date=>{const e=meals().find(m=>m.date===date),r=recipeFrom(e,recipes);return `<div class="bh34-week-row ${date===day?'is-today':''}"><small>${safe(formatDate(date))}</small><span>${safe(r?.name||e?.recipeName||'—')}</span>${e?`<button type="button" class="bh34-reroll-one" data-bh35-reroll-date="${safe(date)}" title="Diesen Tag neu würfeln">⟳</button>`:''}</div>`}).join('')}</div>`}</section>`;
 }
-function hubUI(){return `<section id="bh34Hub" class="bh34-hub" aria-label="Sport und Essen"><div class="bh34-tabs" role="tablist" aria-label="Sport oder Essen"><button type="button" role="tab" aria-selected="${currentSection==='sport'}" class="${currentSection==='sport'?'is-active':''}" data-bh34-tab="sport">🏋️ Sport</button><button type="button" role="tab" aria-selected="${currentSection==='food'}" class="${currentSection==='food'?'is-active':''}" data-bh34-tab="food">🥗 Essen</button></div>${currentSection==='sport'?workoutUI():foodUI()}</section>`}
+function hubUI(){return `<section id="bh35Hub" class="bh34-hub" aria-label="Sport und Essen"><div class="bh34-tabs" role="tablist" aria-label="Sport oder Essen"><button type="button" role="tab" aria-selected="${currentSection==='sport'}" class="${currentSection==='sport'?'is-active':''}" data-bh35-tab="sport">🏋️ Sport</button><button type="button" role="tab" aria-selected="${currentSection==='food'}" class="${currentSection==='food'?'is-active':''}" data-bh35-tab="food">🥗 Essen</button></div>${currentSection==='sport'?workoutUI():foodUI()}</section>`}
 function applyAreaColors(){for(const n of data.nodes.filter(n=>n.parent===null&&n.color)){
- const color=colorValue(n.color),surface=`color-mix(in srgb, ${color} 20%, white)`,edge=`color-mix(in srgb, ${color} 58%, white)`;
+ const color=colorValue(n.color),surface=`color-mix(in srgb, ${color} 80%, white)`,edge=`color-mix(in srgb, ${color} 75%, #a7b9a9)`;
  for(const card of host.querySelectorAll('.project[data-id]'))if(card.dataset.id===n.id){card.style.background=surface;card.style.borderColor=edge}
  for(const row of host.querySelectorAll('[data-area]'))if(row.dataset.area===n.name){if(row.matches('.task')&&['sofort','wichtig'].includes(row.dataset.priority))continue;const item=row.matches('.outline-item')?row.querySelector(':scope > .outline-row'):row;if(item){item.style.background=surface;item.style.borderColor=edge}}
- } }
-const previousRender=render;
-render=function(...args){previousRender(...args);applyAreaColors();if(data.tab==='tree'&&get(data.active)?.parent===null){const title=host.querySelector('#v1ProjectTitle');if(title&&!host.querySelector('[data-bh34-edit-area]'))title.insertAdjacentHTML('afterend','<button type="button" class="bh34-area-edit" data-bh34-edit-area title="Lebensbereich: Name, Emoji und Farbe bearbeiten" aria-label="Name, Emoji und Farbe ändern">🎨</button>')}if(isSportView()){
-  host.querySelector('#bh34Hub')?.remove();host.insertAdjacentHTML('beforeend',hubUI());
- }};
-
-// Create/edit main life areas with an actual color picker, not a fixed card position.
-const projectDialog=document.createElement('dialog');projectDialog.id='bh34ProjectDialog';projectDialog.innerHTML=`<form class="modal" id="bh34ProjectForm"><h2 id="bh34ProjectTitle">Lebensbereich</h2><label class="field">Name<input name="name" required maxlength="120"></label><label class="field">Emoji<input name="emoji" maxlength="12" placeholder="🌿"></label><label class="field">Farbe<input name="color" type="color" value="#8fbd9a"></label><footer><button type="button" class="btn" data-bh34-project-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;document.body.append(projectDialog);
-let editingProject=null;
-function projectForm(mode){const n=mode==='edit'?get(data.active):null;if(mode==='edit'&&(!n||n.parent!==null))return;editingProject=n?.id||null;const f=projectDialog.querySelector('form');f.elements.name.value=n?.name||'';f.elements.emoji.value=n?.emoji||'🌿';f.elements.color.value=colorValue(n?.color);projectDialog.querySelector('#bh34ProjectTitle').textContent=n?'Lebensbereich bearbeiten':'Neuer Lebensbereich';projectDialog.showModal();}
-createMainProject=function(){projectForm('new')};
-editMainProject=function(){projectForm('edit')};
-projectDialog.querySelector('[data-bh34-project-cancel]').onclick=()=>projectDialog.close();
-projectDialog.querySelector('form').addEventListener('submit',e=>{e.preventDefault();const f=e.currentTarget,name=f.elements.name.value.trim(),icon=f.elements.emoji.value.trim()||'🌿',color=f.elements.color.value;if(!name)return;
- const other=data.nodes.find(n=>n.parent===null&&n.name.toLocaleLowerCase('de')===name.toLocaleLowerCase('de')&&n.id!==editingProject);if(other){alert('Ein Lebensbereich mit diesem Namen existiert bereits.');return}
- if(editingProject){const n=get(editingProject);if(!n)return;n.name=name;n.emoji=icon;n.color=color;save();projectDialog.close();render();notice('Lebensbereich aktualisiert')}
- else{const n={id:uid(),parent:null,name,emoji:icon,color,kind:'category',userCreated:true,done:false,priority:'spaeter',due:'',notes:'',collapsed:false};data.nodes.push(n);save();projectDialog.close();openProject(n.id);notice('Lebensbereich angelegt')}
-});
-
-// Delegated handlers survive app re-render; no changes to the existing Privatrezeptbuch.
-document.addEventListener('click',e=>{
- const color=e.target.closest('[data-bh34-edit-area]');if(color){e.preventDefault();e.stopImmediatePropagation();projectForm('edit');return}
- const button=e.target.closest('[data-bh34-tab],[data-bh34-new-exercise],[data-bh34-delete-log],[data-bh34-reroll],[data-bh34-reroll-date],[data-bh34-week],[data-bh34-view-recipe],[data-bh34-open-private]');if(!button)return;
- e.preventDefault();e.stopImmediatePropagation();
- if(button.dataset.bh34Tab){currentSection=button.dataset.bh34Tab;try{localStorage.setItem('brainhome-v34-current',currentSection)}catch{}render();return}
- if(button.hasAttribute('data-bh34-new-exercise')){const name=prompt('Gerät oder Trainingsart (z. B. Klimmzug, Beinpresse, Schwimmen)');if(!name?.trim())return;const cleaned=name.trim().slice(0,120);if(!typeNames().some(n=>n.toLocaleLowerCase('de')===cleaned.toLocaleLowerCase('de'))){allTypes().push({id:uid(),name:cleaned});save();render()}return}
- if(button.dataset.bh34DeleteLog){const id=button.dataset.bh34DeleteLog,entry=allLogs().find(x=>x.id===id);if(!entry||!confirm(`Trainingseintrag „${entry.exercise}“ löschen?`))return;data.trainingLog=allLogs().filter(n=>n.id!==id);save();render();notice('Trainingseintrag gelöscht');return}
- if(button.hasAttribute('data-bh34-open-private')){const root=privateRoot();if(root)openProject(root.id);return}
- if(button.dataset.bh34ViewRecipe){const n=get(button.dataset.bh34ViewRecipe);if(n){const root=privateRoot();if(root)openProject(root.id);openEditor(n.id)}return}
- const recipes=discoverRecipes();if(!recipes.length)return;
- if(button.hasAttribute('data-bh34-week')){
-  const today=dateKey(),used=[];for(let i=0;i<7;i++){const day=plusDays(today,i),recent=used.slice(-Math.min(recipes.length-1,6)),recipe=pickRecipe(recipes,day,recent);if(recipe){setMeal(day,recipe);used.push(recipe.id)}}save();render();notice('7-Tage-Plan gewürfelt');return;
+}}
+const oldRender=render;
+render=function(...args){oldRender(...args);applyAreaColors();
+ if(data.tab==='tree'&&get(data.active)?.parent===null){const title=host.querySelector('#v1ProjectTitle');if(title&&!host.querySelector('[data-bh35-edit-area]'))title.insertAdjacentHTML('afterend','<button type="button" class="bh34-area-edit" data-bh35-edit-area title="Name, Emoji und Pastellfarbe ändern" aria-label="Name, Emoji und Pastellfarbe ändern">🎨</button>')}
+ if(isSportView()){
+  // Remove only the visual task tree and its tools. No stored nodes are touched.
+  host.querySelector('.tree-scroll')?.remove();host.querySelector('.bh13-graph-scroll')?.remove();
+  host.querySelector('.toolbar')?.remove();host.querySelector('.topline [data-action="add"]')?.remove();
+  host.querySelectorAll('.bh11-more,[data-action="bh13-open-tree"],.bh13-graph-controls').forEach(e=>e.remove());
+  host.querySelectorAll('p.hint').forEach(e=>{if(/Baum|Kategorie|Verzweigung|Äste|Knoten/i.test(e.textContent))e.remove()});
+  host.querySelector('#bh35Hub')?.remove();host.insertAdjacentHTML('beforeend',hubUI());
  }
- const date=button.dataset.bh34RerollDate||dateKey();if(button.hasAttribute('data-bh34-reroll')||button.dataset.bh34RerollDate){const old=allMeals().find(e=>e.date===date),already=allMeals().filter(m=>m.date>=plusDays(date,-3)&&m.date<=plusDays(date,3)&&m.date!==date).map(m=>m.recipeId);if(old&&recipes.length>1)already.push(old.recipeId);const recipe=pickRecipe(recipes,date,already);if(recipe){setMeal(date,recipe);save();render();notice('Neues Essen ausgewählt')}}
+};
+// A palette instead of the native saturated HSV color picker.
+const projectDialog=document.createElement('dialog');projectDialog.id='bh35ProjectDialog';projectDialog.innerHTML=`<form class="modal" id="bh35ProjectForm"><h2 id="bh35ProjectTitle">Lebensbereich</h2><label class="field">Name<input name="name" required maxlength="120"></label><label class="field">Emoji<input name="emoji" maxlength="12" placeholder="🌿"></label><div class="field"><span>Pastellfarbe</span><div id="bh35Palette" class="bh35-palette" role="group" aria-label="Pastellfarbe auswählen"></div><input type="hidden" name="color" value="#dcebdd"></div><footer><button type="button" class="btn" data-bh35-project-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;document.body.append(projectDialog);
+let editingProject=null;
+function paintPalette(current){const f=projectDialog.querySelector('form');f.elements.color.value=current;const choices=[...palette];if(!choices.some(([,v])=>v.toLowerCase()===current.toLowerCase()))choices.unshift(['Bisherige Farbe',current]);
+ projectDialog.querySelector('#bh35Palette').innerHTML=choices.map(([label,color])=>`<button type="button" class="bh35-swatch" data-bh35-color="${safe(color)}" style="--swatch:${safe(color)}" aria-label="${safe(label)}" title="${safe(label)}" aria-pressed="${color.toLowerCase()===current.toLowerCase()}"><span aria-hidden="true">${color.toLowerCase()===current.toLowerCase()?'✓':''}</span><small>${safe(label)}</small></button>`).join('');
+}
+function projectForm(mode){const n=mode==='edit'?get(data.active):null;if(mode==='edit'&&(!n||n.parent!==null))return;editingProject=n?.id||null;const f=projectDialog.querySelector('form');f.elements.name.value=n?.name||'';f.elements.emoji.value=n?.emoji||'🌿';paintPalette(colorValue(n?.color));projectDialog.querySelector('#bh35ProjectTitle').textContent=n?'Lebensbereich bearbeiten':'Neuer Lebensbereich';projectDialog.showModal()}
+createMainProject=function(){projectForm('new')};editMainProject=function(){projectForm('edit')};
+projectDialog.addEventListener('click',e=>{if(e.target.closest('[data-bh35-project-cancel]')){projectDialog.close();return}const sw=e.target.closest('[data-bh35-color]');if(sw)paintPalette(sw.dataset.bh35Color)});
+projectDialog.querySelector('form').addEventListener('submit',e=>{e.preventDefault();const f=e.currentTarget,name=f.elements.name.value.trim(),emoji=f.elements.emoji.value.trim()||'🌿',color=f.elements.color.value;if(!name)return;
+ const exists=data.nodes.some(n=>n.parent===null&&n.id!==editingProject&&n.name.toLocaleLowerCase('de')===name.toLocaleLowerCase('de'));if(exists)return alert('Dieser Lebensbereich existiert bereits.');
+ if(editingProject){const n=get(editingProject);if(!n)return;n.name=name;n.emoji=emoji;n.color=color;save();projectDialog.close();render();notice('Lebensbereich aktualisiert')}
+ else{const n={id:uid(),parent:null,name,emoji,color,kind:'category',userCreated:true,done:false,priority:'spaeter',due:'',notes:'',collapsed:false};data.nodes.push(n);save();projectDialog.close();openProject(n.id);notice('Lebensbereich angelegt')}
+});
+document.addEventListener('click',e=>{
+ const edit=e.target.closest('[data-bh35-edit-area]');if(edit){e.preventDefault();e.stopImmediatePropagation();projectForm('edit');return}
+ const b=e.target.closest('[data-bh35-tab],[data-bh35-new-exercise],[data-bh35-delete-log],[data-bh35-reroll],[data-bh35-reroll-date],[data-bh35-week],[data-bh35-view-recipe],[data-bh35-open-private]');if(!b)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(b.dataset.bh35Tab){currentSection=b.dataset.bh35Tab;try{localStorage.setItem('brainhome-v34-current',currentSection)}catch{}render();return}
+ if(b.hasAttribute('data-bh35-new-exercise')){const name=prompt('Gerät oder Trainingsart');if(!name?.trim())return;const cleaned=name.trim().slice(0,120);if(!typeNames().some(t=>t.toLocaleLowerCase('de')===cleaned.toLocaleLowerCase('de'))){types().push({id:uid(),name:cleaned});save();render()}return}
+ if(b.dataset.bh35DeleteLog){const id=b.dataset.bh35DeleteLog,entry=logs().find(e=>e.id===id);if(!entry||!confirm(`Trainingseintrag „${entry.exercise}“ löschen?`))return;data.trainingLog=logs().filter(e=>e.id!==id);save();render();notice('Trainingseintrag gelöscht');return}
+ if(b.hasAttribute('data-bh35-open-private')){const root=privateRoot();if(root)openProject(root.id);return}
+ if(b.dataset.bh35ViewRecipe){const n=get(b.dataset.bh35ViewRecipe);if(n){const root=privateRoot();if(root)openProject(root.id);openEditor(n.id)}return}
+ const recipes=discoverRecipes();if(!recipes.length)return;
+ if(b.hasAttribute('data-bh35-week')){const today=dateKey(),used=[];for(let i=0;i<7;i++){const day=plusDays(today,i),recent=used.slice(-Math.min(recipes.length-1,6)),r=pickRecipe(recipes,day,recent);if(r){setMeal(day,r);used.push(r.id)}}save();render();notice('7-Tage-Plan gewürfelt');return}
+ const date=b.dataset.bh35RerollDate||dateKey();if(b.hasAttribute('data-bh35-reroll')||b.dataset.bh35RerollDate){const old=meals().find(e=>e.date===date),excluded=meals().filter(m=>m.date>=plusDays(date,-3)&&m.date<=plusDays(date,3)&&m.date!==date).map(m=>m.recipeId);if(old&&recipes.length>1)excluded.push(old.recipeId);const r=pickRecipe(recipes,date,excluded);if(r){setMeal(date,r);save();render();notice('Neues Essen ausgewählt')}}
 },true);
-document.addEventListener('change',e=>{if(e.target.id!=='bh34StatSelect')return;statType=e.target.value;render()});
-document.addEventListener('submit',e=>{if(e.target.id!=='bh34TrainingForm')return;e.preventDefault();e.stopImmediatePropagation();const form=e.target;const name=form.elements.exercise.value.trim().slice(0,120);const w=form.elements.weight.value;const sets=Number(form.elements.sets.value),reps=Number(form.elements.reps.value),weight=w===''?null:Number(w);
- if(!name||!Number.isInteger(sets)||sets<1||sets>99||!Number.isInteger(reps)||reps<1||reps>1000||(weight!==null&&(!Number.isFinite(weight)||weight<0||weight>1500)))return;
- const existing=typeNames().find(n=>n.toLocaleLowerCase('de')===name.toLocaleLowerCase('de'));
- const normalized=existing||name;
- if(!existing)allTypes().push({id:uid(),name:normalized});
- allLogs().push({id:uid(),exercise:normalized,weight,sets,reps,date:dateKey(),at:new Date().toISOString()});
- // Reset the entire form, not just the weight fields.
- form.reset();for(const input of form.querySelectorAll('input'))input.value='';
- save();render();document.querySelector('#bh34TrainingForm [name="exercise"]')?.focus();notice('Training eingetragen');
+document.addEventListener('input',e=>{
+ if(e.target?.name!=='sets'||e.target.closest('form')?.id!=='bh35TrainingForm')return;
+ const rows=document.getElementById('bh35SetFields');if(!rows)return;
+ const current=[...rows.querySelectorAll('.bh35-set-row')].map(row=>({weight:row.querySelector('input[name^="weight-"]')?.value,reps:row.querySelector('input[name^="reps-"]')?.value}));
+ rows.innerHTML=inputRows(Number(e.target.value),current);
+});
+document.addEventListener('change',e=>{if(e.target.id==='bh35StatSelect'){selectedType=e.target.value;render()}});
+document.addEventListener('toggle',e=>{if(e.target.id==='bh35History'){historyOpen=e.target.open;try{localStorage.setItem('brainhome-v35-history-open',historyOpen?'yes':'no')}catch{}}},true);
+document.addEventListener('submit',e=>{
+ if(e.target.id!=='bh35TrainingForm')return;e.preventDefault();e.stopImmediatePropagation();const f=e.target;
+ const name=f.elements.exercise.value.trim().slice(0,120),count=Number(f.elements.sets.value);
+ if(!name||!Number.isInteger(count)||count<1||count>40)return alert('Bitte Trainingsart und Satzanzahl eingeben.');
+ const setDetails=[];for(let i=0;i<count;i++){
+  const r=f.querySelector(`[name="reps-${i}"]`),w=f.querySelector(`[name="weight-${i}"]`);
+  if(!r||!w)return alert('Bitte die Satzanzahl bestätigen.');
+  const reps=Number(r.value),weight=w.value.trim()===''?null:Number(w.value);
+  if(!r.value||!Number.isInteger(reps)||reps<1||reps>1000||(weight!==null&&(!Number.isFinite(weight)||weight<0||weight>1500)))return alert(`Ungültige Werte in Satz ${i+1}.`);
+  setDetails.push({reps,weight});
+ }
+ const normalized=typeNames().find(t=>t.toLocaleLowerCase('de')===name.toLocaleLowerCase('de'))||name;
+ if(!typeNames().includes(normalized))types().push({id:uid(),name:normalized});
+ // Keep legacy summary fields, but setDetails are authoritative and lossless.
+ logs().push({id:uid(),exercise:normalized,sets:count,reps:setDetails[0].reps,weight:setDetails[0].weight,setDetails,date:dateKey(),at:new Date().toISOString()});
+ f.reset();save();render();document.querySelector('#bh35TrainingForm [name="exercise"]')?.focus();notice('Training eingetragen');
 },true);
-// Form-based navigation after updates is fully independent of cloud authentication.
-const sheet=document.createElement('style');sheet.textContent=`
-.bh34-area-edit{border:1px solid #bdd3c0;background:#f3f8f0;border-radius:9px;cursor:pointer;font-size:17px;padding:6px 9px;margin-right:auto}.bh34-hub{margin:19px 0 28px;background:#fafcf9;border:1px solid #d2dfd3;border-radius:16px;overflow:hidden;box-shadow:0 4px 18px #304d3610}
-.bh34-tabs{display:grid;grid-template-columns:1fr 1fr;background:#e8f0e7;padding:6px;gap:6px}.bh34-tabs button{font:600 15px system-ui,sans-serif;border:0;border-radius:11px;padding:12px;background:transparent;color:#4a6251;cursor:pointer}.bh34-tabs button.is-active{background:#fff;color:#214d36;box-shadow:0 1px 8px #244d3521}
-.bh34-body{padding:18px;display:grid;gap:16px}.bh34-section-title{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}.bh34-section-title h3,.bh34-section-title h4{margin:0;color:#285640}.bh34-section-title h3{font-size:18px}.bh34-section-title h4{font-size:15px}.bh34-muted{font-size:12px;color:#667968}
-.bh34-mini-btn{font-size:12px;padding:8px 10px!important}.bh34-stat-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.bh34-stat-head label{font-size:12px;font-weight:650}.bh34-stat-head select{flex:1;min-width:175px;max-width:380px;border:1px solid #cbd9ce;border-radius:9px;padding:9px;background:white;color:#294335}
-.bh34-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.bh34-metric{padding:12px 9px;border:1px solid #d8e5da;border-radius:11px;background:#eef6ee;min-width:0}.bh34-metric small{display:block;font-size:11px;color:#59705f;line-height:1.4}.bh34-metric strong{display:block;font-size:18px;color:#264d38;margin-top:3px;overflow-wrap:anywhere}
-.bh34-overview{display:grid;gap:2px;border:1px solid #e0e9e0;border-radius:10px;padding:4px 12px}.bh34-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 3px;border-bottom:1px solid #e9eee8}.bh34-summary-row:last-child{border-bottom:0}.bh34-summary-row span{font-size:13px;font-weight:650}.bh34-summary-row small{font-size:11px;color:#647267;text-align:right}
-.bh34-training-form{display:grid;grid-template-columns:minmax(150px,2fr) minmax(90px,1fr) minmax(68px,.7fr) minmax(80px,.9fr) auto;gap:9px;align-items:end;padding:13px;background:#f2f8f1;border:1px solid #dce8dd;border-radius:11px}.bh34-training-form label{min-width:0;display:grid;gap:6px;font-size:11px;font-weight:650;color:#4b6252}.bh34-training-form label small{font-size:10px;font-weight:400}.bh34-training-form input{min-width:0;width:100%;border:1px solid #c9d7ca;border-radius:8px;padding:10px 8px;font-size:14px;background:#fff;color:#243e2e}.bh34-training-form button{white-space:nowrap;padding:10px 13px}
-.bh34-log{display:grid;max-height:560px;overflow:auto}.bh34-log-row{display:flex;align-items:center;gap:12px;justify-content:space-between;border-bottom:1px solid #e3eae2;padding:8px 3px}.bh34-log-row div{display:grid;gap:3px}.bh34-log-row strong{font-size:13px}.bh34-log-row small{color:#67796a;font-size:11px}.bh34-delete{border:0;background:transparent;color:#8c6666;font-size:21px;cursor:pointer}.bh34-empty{background:#f3f7f2;border-radius:12px;padding:18px;color:#657469;font-size:13px}.bh34-recipe-empty p{margin:9px 0 15px}
-.bh34-today{background:linear-gradient(135deg,#e4f1de,#f4f8ec);border:1px solid #d4e5d0;border-radius:15px;padding:21px;display:grid;gap:12px}.bh34-today>small{font-size:12px;color:#647565}.bh34-today>strong{font-size:23px;line-height:1.3;color:#244833}.bh34-today-actions{display:flex;gap:8px;flex-wrap:wrap}.bh34-week{display:grid;gap:3px}.bh34-week-row{display:grid;grid-template-columns:100px minmax(0,1fr) 26px;gap:9px;align-items:center;padding:10px;border-radius:9px}.bh34-week-row:nth-child(odd){background:#f0f5ef}.bh34-week-row.is-today{border:1px solid #bdd7bc}.bh34-week-row small{font-size:11px;color:#607264}.bh34-week-row span{font-size:13px;overflow-wrap:anywhere}.bh34-reroll-one{border:0;background:transparent;cursor:pointer;color:#50705a;font-size:18px}
-@media(max-width:820px){.bh34-training-form{grid-template-columns:repeat(3,minmax(0,1fr))}.bh34-training-form label:first-child{grid-column:1/-1}.bh34-training-form button{grid-column:1/-1}.bh34-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.bh34-summary-row{display:grid;gap:4px}.bh34-summary-row small{text-align:left}}@media(max-width:390px){.bh34-body{padding:12px}.bh34-week-row{grid-template-columns:75px minmax(0,1fr) 23px}.bh34-section-title h3{font-size:16px}}
-`;document.head.append(sheet);
+const style=document.createElement('style');style.textContent=`
+.bh34-area-edit{border:1px solid #c4d8c6;background:#e7f1e5;border-radius:9px;cursor:pointer;font-size:17px;padding:6px 9px;margin-right:auto}
+.bh35-palette{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.bh35-swatch{border:2px solid transparent;background:transparent;border-radius:12px;min-width:0;display:grid;gap:5px;padding:6px;color:#375340;text-align:center}
+.bh35-swatch span{display:grid;place-items:center;background:var(--swatch);border-radius:10px;height:34px;border:1px solid #b9c6b9;color:#274a36;font-weight:700}
+.bh35-swatch small{font-size:10px;overflow-wrap:anywhere}
+.bh35-swatch[aria-pressed="true"]{border-color:#477455;background:#f2f8f0}
+.bh34-hub{margin:15px 0 28px;background:#fafcf9;border:1px solid #d2dfd3;border-radius:16px;overflow:hidden;box-shadow:0 4px 18px #304d3610}
+.bh34-tabs{display:grid;grid-template-columns:1fr 1fr;background:#e8f0e7;padding:6px;gap:6px}
+.bh34-tabs button{font:600 15px system-ui,sans-serif;border:0;border-radius:11px;padding:12px;background:transparent;color:#4a6251;cursor:pointer}
+.bh34-tabs button.is-active{background:#fff;color:#214d36;box-shadow:0 1px 8px #244d3521}
+.bh34-body{padding:18px;display:grid;gap:15px}.bh34-section-title{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.bh34-section-title h3,.bh34-section-title h4{margin:0;color:#285640}.bh34-section-title h3{font-size:18px}.bh34-section-title h4{font-size:15px}
+.bh34-muted{font-size:12px;color:#667968}.bh34-mini-btn{font-size:12px;padding:8px 10px!important}
+.bh34-stat-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.bh34-stat-head label{font-size:12px;font-weight:650}
+.bh34-stat-head select{flex:1;min-width:170px;max-width:380px;border:1px solid #cbd9ce;border-radius:9px;padding:9px;background:#fff;color:#294335}
+.bh34-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.bh34-metric{padding:11px 9px;border:1px solid #d8e5da;border-radius:11px;background:#eef6ee;min-width:0}
+.bh34-metric small{display:block;font-size:11px;color:#59705f;line-height:1.4}.bh34-metric strong{display:block;font-size:18px;color:#264d38;margin-top:3px;overflow-wrap:anywhere}
+.bh35-chart{border:1px solid #d9e6d9;border-radius:13px;padding:13px;background:#f8fbf6}.bh35-chart-title{font-size:12px;font-weight:650;color:#466851;margin-bottom:10px}
+.bh35-bars{display:grid;gap:8px;max-height:300px;overflow-y:auto}.bh35-bar-line{display:grid;grid-template-columns:minmax(66px,128px) minmax(0,1fr) 64px;gap:9px;align-items:center}
+.bh35-bar-label{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#365141}.bh35-bar-track{height:12px;border-radius:20px;background:#e4eee5;overflow:hidden}
+.bh35-bar-fill{height:100%;background:linear-gradient(90deg,#8db8a0,#4f8466);border-radius:20px}.bh35-bar-value{font-size:11px;color:#385642;text-align:right}
+.bh35-chart-empty{background:#f5f9f3;color:#748879;border-radius:10px;padding:14px;font-size:12px}
+.bh35-training-form{display:grid;gap:12px;background:#f2f8f1;border:1px solid #dce8dd;border-radius:12px;padding:13px}
+.bh35-training-basics{display:grid;grid-template-columns:minmax(0,2fr) minmax(88px,.6fr);gap:10px}
+.bh35-training-form label{display:grid;gap:5px;min-width:0;font-size:12px;font-weight:650;color:#4b6252}
+.bh35-training-form input{min-width:0;width:100%;border:1px solid #c9d7ca;border-radius:8px;padding:10px 8px;font-size:14px;background:#fff;color:#243e2e}
+.bh35-setfields{display:grid;gap:7px}.bh35-set-placeholder{font-size:12px;color:#809183;margin:0}.bh35-set-row{display:grid;grid-template-columns:24px minmax(70px,1fr) minmax(100px,1.4fr);gap:8px;align-items:end}
+.bh35-set-index{font-size:13px;color:#4c6d56;padding-bottom:12px}.bh35-training-form>.btn{justify-self:start}
+.bh35-history{border:1px solid #d9e6d9;border-radius:12px;background:#fff;overflow:hidden}.bh35-history>summary{cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px;color:#2a583b;font-weight:650;font-size:13px;list-style:none}
+.bh35-history>summary::-webkit-details-marker{display:none}.bh35-history>summary:before{content:'▸';margin-right:5px}.bh35-history[open]>summary:before{content:'▾'}.bh35-history>summary span{font-size:11px;color:#7a8a7c;font-weight:400;margin-left:auto}
+.bh34-log{display:grid;max-height:560px;overflow:auto;padding:0 12px}.bh34-log-row{display:flex;align-items:center;gap:12px;justify-content:space-between;border-bottom:1px solid #e3eae2;padding:10px 3px}
+.bh34-log-row div{display:grid;gap:4px;min-width:0}.bh34-log-row strong{font-size:13px}.bh34-log-row small{color:#67796a;font-size:11px;line-height:1.55;overflow-wrap:anywhere}
+.bh34-delete{border:0;background:transparent;color:#8c6666;font-size:21px;cursor:pointer}.bh34-empty{background:#f3f7f2;border-radius:12px;padding:18px;color:#657469;font-size:13px}
+.bh34-today{background:linear-gradient(135deg,#e4f1de,#f4f8ec);border:1px solid #d4e5d0;border-radius:15px;padding:21px;display:grid;gap:12px}
+.bh34-today>small{font-size:12px;color:#647565}.bh34-today>strong{font-size:23px;line-height:1.3;color:#244833}.bh34-today-actions{display:flex;gap:8px;flex-wrap:wrap}
+.bh34-week{display:grid;gap:3px}.bh34-week-row{display:grid;grid-template-columns:100px minmax(0,1fr) 26px;gap:9px;align-items:center;padding:10px;border-radius:9px}
+.bh34-week-row:nth-child(odd){background:#f0f5ef}.bh34-week-row.is-today{border:1px solid #bdd7bc}.bh34-week-row small{font-size:11px;color:#607264}.bh34-week-row span{font-size:13px;overflow-wrap:anywhere}
+.bh34-reroll-one{border:0;background:transparent;cursor:pointer;color:#50705a;font-size:18px}
+@media(max-width:720px){.bh34-body{padding:12px}.bh34-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.bh35-palette{grid-template-columns:repeat(4,minmax(0,1fr))}.bh35-bar-line{grid-template-columns:90px minmax(0,1fr) 52px}.bh35-training-form>.btn{width:100%}}
+@media(max-width:380px){.bh35-set-row{grid-template-columns:18px minmax(62px,1fr) minmax(90px,1.1fr)}.bh35-set-row input{padding:8px 6px}.bh34-week-row{grid-template-columns:75px minmax(0,1fr) 23px}}
+`;document.head.append(style);
 render();
 })();
