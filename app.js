@@ -2596,14 +2596,42 @@ const dateKey=(d=new Date())=>[d.getFullYear(),String(d.getMonth()+1).padStart(2
 const plusDays=(s,amount)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+amount);return dateKey(d)};
 const formatDate=s=>new Date(s+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short'});
 const weightText=w=>new Intl.NumberFormat('de-DE',{maximumFractionDigits:2}).format(w);
-const palette=[
- ['Salbei','#dcebdd'],['Flieder','#eee5f8'],['Himmelblau','#dcecf3'],
- ['Sand','#f7ebd2'],['Altrosa','#f8e4ea'],['Mint','#e0f0e9'],
- ['Apricot','#f7e7dc'],['Lavendelblau','#e2e7f5']
+const paletteGroups=[
+ {name:'Grün & Natur',colors:[
+  ['Salbei','#dcebdd'],['Mint','#e0f0e9'],['Eukalyptus','#cee5dc'],
+  ['Matcha','#e5edd5'],['Pistazie','#edf0cf'],['Waldnebel','#d5e4d5']
+ ]},
+ {name:'Blau & Türkis',colors:[
+  ['Himmelblau','#dcecf3'],['Lavendelblau','#e2e7f5'],['Eisblau','#e0f3f6'],
+  ['Taubenblau','#d5e3ef'],['Aquamarin','#d3ebe8'],['Fjord','#cedfe8']
+ ]},
+ {name:'Lila & Flieder',colors:[
+  ['Flieder','#eee5f8'],['Mauve','#ebd9ec'],['Veilchen','#e5dcf5'],
+  ['Orchidee','#f4e3f1'],['Immergrün','#dcdff4'],['Blauregen','#ede4ff']
+ ]},
+ {name:'Rosa & Koralle',colors:[
+  ['Altrosa','#f8e4ea'],['Puderrosa','#f7e1e7'],['Rosenholz','#f1dadb'],
+  ['Kirschblüte','#fae7ef'],['Koralle','#f8e1dd'],['Pfirsich','#fce7df']
+ ]},
+ {name:'Sonne & Erde',colors:[
+  ['Sand','#f7ebd2'],['Apricot','#f7e7dc'],['Vanille','#fbf1d9'],
+  ['Honig','#f4e4bd'],['Terrakotta','#f2ddcf'],['Creme','#f6f0e7']
+ ]},
+ {name:'Sanfte Neutraltöne',colors:[
+  ['Muschel','#ece6df'],['Nebelgrau','#e9eeed'],['Stein','#e4e5df'],
+  ['Hafer','#efe9df'],['Nebelrosa','#f0e8ea'],['Eisweiß','#edf4f1']
+ ]}
 ];
+const palette=paletteGroups.flatMap(group=>group.colors);
+
 const colorValue=s=>/^#[\da-f]{6}$/i.test(String(s||''))?s:'#dcebdd';
 let currentSection='sport';try{currentSection=localStorage.getItem('brainhome-v34-current')==='food'?'food':'sport'}catch{}
 let selectedType='all';
+let statView='overview';
+try{const setting=localStorage.getItem('brainhome-v36-stat-view');if(['overview','device','trend'].includes(setting))statView=setting}catch{}
+function rememberStatView(){try{localStorage.setItem('brainhome-v36-stat-view',statView)}catch{}}
+function chooseExercise(){const names=typeNames();if(!names.includes(selectedType))selectedType=names[0]||'all';return selectedType}
+
 let historyOpen=false;try{historyOpen=localStorage.getItem('brainhome-v35-history-open')==='yes'}catch{}
 function typeNames(){const out=new Set();for(const t of types())if(t.name?.trim())out.add(t.name.trim());for(const e of logs())if(e.exercise?.trim())out.add(e.exercise.trim());return [...out].sort((a,b)=>a.localeCompare(b,'de'))}
 function shownLogs(){return logs().filter(e=>selectedType==='all'||e.exercise===selectedType)}
@@ -2619,32 +2647,55 @@ function statistics(records){
  return {count:records.length,days:days.size,sets:all.length,average:weighted.length?weighted.reduce((a,s)=>a+s.weight,0)/weighted.length:null,max:weighted.length?Math.max(...weighted.map(s=>s.weight)):null};
 }
 function metric(label,value){return `<div class="bh34-metric"><small>${safe(label)}</small><strong>${safe(value)}</strong></div>`}
-function chart(records,names){
- if(!records.length)return `<div class="bh35-chart-empty">Noch keine Trainingsdaten für diese Auswahl.</div>`;
- let dataPoints=[],unit='',title='';
- if(selectedType==='all'){
-  dataPoints=names.map(name=>({name,value:records.filter(e=>e.exercise===name).length})).filter(p=>p.value>0).sort((a,b)=>b.value-a.value);
-  title='Wie oft trainiert';unit='Einträge';
- }else{
-  const daily=new Map();for(const e of records){const d=e.date||dateKey();const arr=daily.get(d)||[];arr.push(...details(e));daily.set(d,arr)}
-  const hasWeights=[...daily.values()].some(sets=>sets.some(s=>s.weight!==null&&Number.isFinite(s.weight)));
-  dataPoints=[...daily].sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([date,sets])=>({name:formatDate(date).replace(/\./g,''),value:hasWeights?Math.max(0,...sets.filter(s=>s.weight!==null).map(s=>s.weight)):Math.max(0,...sets.map(s=>s.reps))}));
-  title=hasWeights?'Maximalgewicht nach Trainingstag':'Maximale Wiederholungen nach Trainingstag';unit=hasWeights?'kg':'Wdh.';
- }
- const ceiling=Math.max(1,...dataPoints.map(p=>p.value));
- return `<section class="bh35-chart" aria-label="Trainingsdiagramm"><div class="bh35-chart-title">${safe(title)}</div><div class="bh35-bars">${dataPoints.map(p=>`<div class="bh35-bar-line"><span class="bh35-bar-label" title="${safe(p.name)}">${safe(p.name)}</span><div class="bh35-bar-track"><div class="bh35-bar-fill" style="width:${Math.max(1,100*p.value/ceiling)}%"></div></div><span class="bh35-bar-value">${safe(weightText(p.value))}${selectedType==='all'?'':' '+unit}</span></div>`).join('')}</div></section>`;
+function kgMetric(v){return v===null?'—':weightText(v)+' kg'}
+function statTab(label,mode){return `<button type="button" data-bh36-view="${mode}" aria-pressed="${statView===mode}" class="bh36-switch ${statView===mode?'is-selected':''}">${label}</button>`}
+function statTable(headings,rows,foot=''){
+ return `<div class="bh36-table-scroll" tabindex="0" aria-label="Statistik-Tabelle horizontal scrollbar"><table class="bh36-table"><thead><tr>${headings.map(x=>`<th scope="col">${safe(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table></div>`;
+}
+function statOverview(){
+ const names=typeNames(),all=logs(),rows=names.map(name=>{const d=all.filter(e=>e.exercise===name),m=statistics(d);
+  return `<tr><th scope="row"><button type="button" class="bh36-device-link" data-bh36-open-exercise="${safe(name)}">${safe(name)}</button></th><td>${m.count}</td><td>${m.days}</td><td>${kgMetric(m.average)}</td><td>${kgMetric(m.max)}</td></tr>`;
+ });
+ const m=statistics(all);
+ const foot=`<tr><th scope="row">Gesamt</th><td>${m.count}</td><td>${m.days}</td><td>${kgMetric(m.average)}</td><td>${kgMetric(m.max)}</td></tr>`;
+ return all.length?statTable(['Gerät / Trainingsart','Einträge','Tage','Ø Gewicht','Max. Gewicht'],rows.join(''),foot):'<div class="bh35-chart-empty">Deine Trainingseinträge erscheinen hier nach dem ersten Training.</div>';
+}
+function statDevice(){
+ const name=chooseExercise();if(name==='all')return '<div class="bh35-chart-empty">Lege zuerst eine Trainingsart an.</div>';
+ const sessions=shownLogs().slice().sort((a,b)=>(b.at||b.date||'').localeCompare(a.at||a.date||'')),m=statistics(sessions);
+ const selection=`<label class="bh36-device-select">Trainingsart <select id="bh36ExerciseSelect">${typeNames().map(n=>`<option value="${safe(n)}" ${n===name?'selected':''}>${safe(n)}</option>`).join('')}</select></label>`;
+ const summary=`<div class="bh36-summary">${metric('Einträge',m.count)}${metric('Sätze',m.sets)}${metric('Ø Gewicht',kgMetric(m.average))}${metric('Maximum',kgMetric(m.max))}</div>`;
+ const rows=sessions.map(e=>{const sets=details(e),local=statistics([e]);return `<tr><th scope="row">${safe(formatDate(e.date))}</th><td>${sets.length}</td><td class="bh36-reps">${safe(sets.map(s=>s.reps).join(' / '))}</td><td>${kgMetric(local.average)}</td><td>${kgMetric(local.max)}</td></tr>`}).join('');
+ return `${selection}${summary}${sessions.length?statTable(['Datum','Sätze','Wdh. pro Satz','Ø Gewicht','Max. Gewicht'],rows):'<div class="bh35-chart-empty">Noch keine Einträge für diese Trainingsart.</div>'}`;
+}
+function statTrend(){
+ const name=chooseExercise();if(name==='all')return '<div class="bh35-chart-empty">Lege zuerst eine Trainingsart an.</div>';
+ const selection=`<label class="bh36-device-select">Trainingsart <select id="bh36ExerciseSelect">${typeNames().map(n=>`<option value="${safe(n)}" ${n===name?'selected':''}>${safe(n)}</option>`).join('')}</select></label>`;
+ const series=new Map();for(const log of shownLogs()){const day=log.date||dateKey(),arr=series.get(day)||[];arr.push(...details(log));series.set(day,arr)}
+ const weighted=[...series.values()].some(arr=>arr.some(s=>s.weight!==null&&Number.isFinite(s.weight)));
+ const rows=[...series.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([day,sets])=>{
+  const valid=sets.filter(s=>s.weight!==null&&Number.isFinite(s.weight)),nums=weighted?valid.map(s=>s.weight):sets.map(s=>s.reps);
+  return {day,sets:sets.length,average:nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null,max:nums.length?Math.max(...nums):null};
+ });
+ if(!rows.length)return selection+'<div class="bh35-chart-empty">Noch keine Trainingstage für diese Trainingsart.</div>';
+ const graphic=rows.slice(-10),highest=Math.max(1,...graphic.map(r=>r.max||0)),unit=weighted?'kg':'Wdh.';
+ const columns=`<div class="bh36-columns" role="img" aria-label="${weighted?'Maximales Gewicht':'Maximale Wiederholungen'} nach Trainingstag">${graphic.map(r=>`<div class="bh36-col"><span class="bh36-col-number">${r.max===null?'—':safe(weightText(r.max))}</span><div class="bh36-col-plot"><div class="bh36-col-bar" style="height:${r.max===null?0:Math.max(3,Math.round(100*r.max/highest))}%"></div></div><span class="bh36-col-date">${safe(new Date(r.day+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}))}</span></div>`).join('')}</div>`;
+ const table=statTable(['Datum','Sätze',weighted?'Ø kg':'Ø Wdh.',weighted?'Max. kg':'Max. Wdh.'],rows.slice().reverse().map(r=>`<tr><th scope="row">${safe(formatDate(r.day))}</th><td>${r.sets}</td><td>${r.average===null?'—':weightText(r.average)}</td><td>${r.max===null?'—':weightText(r.max)}</td></tr>`).join(''));
+ return `${selection}<div class="bh36-trend-unit">${weighted?'Gewichtsentwicklung':'Wiederholungsentwicklung'} · ${unit}</div>${columns}${table}`;
+}
+function statPanel(){
+ const content=statView==='device'?statDevice():statView==='trend'?statTrend():statOverview();
+ return `<section class="bh36-stat-panel" aria-label="Trainingsstatistik"><div class="bh36-head"><h4>Statistik</h4><div class="bh36-switches" role="group" aria-label="Statistikansicht">${statTab('Übersicht','overview')}${statTab('Gerät','device')}${statTab('Verlauf','trend')}</div></div>${content}</section>`;
 }
 function inputRows(count,preserved=[]){
  if(!Number.isInteger(count)||count<1||count>40)return '<p class="bh35-set-placeholder">Satzanzahl eingeben, dann erscheinen die einzelnen Sätze.</p>';
  return Array.from({length:count},(_,i)=>`<div class="bh35-set-row"><span class="bh35-set-index">${i+1}.</span><label>kg <input type="number" inputmode="decimal" min="0" max="1500" step="any" placeholder="optional" name="weight-${i}" value="${safe(preserved[i]?.weight||'')}"></label><label>Wiederholungen <input type="number" inputmode="numeric" min="1" max="1000" step="1" required name="reps-${i}" placeholder="z. B. 8" value="${safe(preserved[i]?.reps||'')}"></label></div>`).join('');
 }
 function workoutUI(){
- const names=typeNames(),records=shownLogs(),ordered=records.slice().sort((a,b)=>(b.at||'').localeCompare(a.at||'')),s=statistics(records);
+ const names=typeNames(),ordered=logs().slice().sort((a,b)=>(b.at||'').localeCompare(a.at||''));
  return `<section class="bh34-body" id="bh34Workout">
   <div class="bh34-section-title"><h3>Training</h3><button type="button" class="btn bh34-mini-btn" data-bh35-new-exercise>＋ Trainingsart</button></div>
-  <div class="bh34-stat-head"><label for="bh35StatSelect">Auswertung</label><select id="bh35StatSelect"><option value="all" ${selectedType==='all'?'selected':''}>Alle Geräte & Trainingsarten</option>${names.map(name=>`<option value="${safe(name)}" ${selectedType===name?'selected':''}>${safe(name)}</option>`).join('')}</select></div>
-  ${chart(records,names)}
-  <div class="bh34-metrics">${metric('Trainingseinträge',s.count)}${metric('Trainingstage',s.days)}${metric('Ø Gewicht',s.average==null?'—':weightText(s.average)+' kg')}${metric('Max. Gewicht',s.max==null?'—':weightText(s.max)+' kg')}</div>
+  ${statPanel()}
   <form id="bh35TrainingForm" class="bh35-training-form"><div class="bh35-training-basics"><label>Gerät / Trainingsart<input name="exercise" list="bh35ExerciseList" maxlength="120" autocomplete="off" required placeholder="z. B. Beinpresse"></label><datalist id="bh35ExerciseList">${names.map(n=>`<option value="${safe(n)}"></option>`).join('')}</datalist><label>Sätze<input name="sets" type="number" inputmode="numeric" min="1" max="40" step="1" placeholder="z. B. 3" required></label></div>
    <div class="bh35-setfields" id="bh35SetFields">${inputRows(0)}</div><button class="btn primary" type="submit">＋ Eintragen</button></form>
   <details id="bh35History" class="bh35-history" ${historyOpen?'open':''}><summary>Trainingstagebuch <span>${ordered.length} Einträge</span></summary><div class="bh34-log">${ordered.slice(0,200).map(e=>`<div class="bh34-log-row"><div><strong>${safe(e.exercise)}</strong><small>${safe(formatDate(e.date))} · ${details(e).map((s,i)=>`${i+1}. ${s.reps} Wdh.${s.weight==null?'':` · ${weightText(s.weight)} kg`}`).map(safe).join('　|　')}</small></div><button type="button" class="bh34-delete" data-bh35-delete-log="${safe(e.id)}" aria-label="Eintrag löschen">×</button></div>`).join('')||'<p class="bh34-empty">Noch keine Trainingseinträge.</p>'}</div></details>
@@ -2706,9 +2757,13 @@ render=function(...args){oldRender(...args);applyAreaColors();
 // A palette instead of the native saturated HSV color picker.
 const projectDialog=document.createElement('dialog');projectDialog.id='bh35ProjectDialog';projectDialog.innerHTML=`<form class="modal" id="bh35ProjectForm"><h2 id="bh35ProjectTitle">Lebensbereich</h2><label class="field">Name<input name="name" required maxlength="120"></label><label class="field">Emoji<input name="emoji" maxlength="12" placeholder="🌿"></label><div class="field"><span>Pastellfarbe</span><div id="bh35Palette" class="bh35-palette" role="group" aria-label="Pastellfarbe auswählen"></div><input type="hidden" name="color" value="#dcebdd"></div><footer><button type="button" class="btn" data-bh35-project-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;document.body.append(projectDialog);
 let editingProject=null;
-function paintPalette(current){const f=projectDialog.querySelector('form');f.elements.color.value=current;const choices=[...palette];if(!choices.some(([,v])=>v.toLowerCase()===current.toLowerCase()))choices.unshift(['Bisherige Farbe',current]);
- projectDialog.querySelector('#bh35Palette').innerHTML=choices.map(([label,color])=>`<button type="button" class="bh35-swatch" data-bh35-color="${safe(color)}" style="--swatch:${safe(color)}" aria-label="${safe(label)}" title="${safe(label)}" aria-pressed="${color.toLowerCase()===current.toLowerCase()}"><span aria-hidden="true">${color.toLowerCase()===current.toLowerCase()?'✓':''}</span><small>${safe(label)}</small></button>`).join('');
+function paintPalette(current){
+ const f=projectDialog.querySelector('form');f.elements.color.value=current;
+ const known=palette.some(([,v])=>v.toLowerCase()===current.toLowerCase());
+ const groups=known?paletteGroups:[{name:'Deine bisherige Farbe',colors:[['Bisherige Farbe',current]]},...paletteGroups];
+ projectDialog.querySelector('#bh35Palette').innerHTML=groups.map(group=>`<div class="bh36-palette-group"><h3>${safe(group.name)}</h3><div class="bh36-palette-row">${group.colors.map(([label,color])=>`<button type="button" class="bh35-swatch" data-bh35-color="${safe(color)}" style="--swatch:${safe(color)}" aria-label="${safe(label)}" title="${safe(label)}" aria-pressed="${color.toLowerCase()===current.toLowerCase()}"><span aria-hidden="true">${color.toLowerCase()===current.toLowerCase()?'✓':''}</span><small>${safe(label)}</small></button>`).join('')}</div></div>`).join('');
 }
+
 function projectForm(mode){const n=mode==='edit'?get(data.active):null;if(mode==='edit'&&(!n||n.parent!==null))return;editingProject=n?.id||null;const f=projectDialog.querySelector('form');f.elements.name.value=n?.name||'';f.elements.emoji.value=n?.emoji||'🌿';paintPalette(colorValue(n?.color));projectDialog.querySelector('#bh35ProjectTitle').textContent=n?'Lebensbereich bearbeiten':'Neuer Lebensbereich';projectDialog.showModal()}
 createMainProject=function(){projectForm('new')};editMainProject=function(){projectForm('edit')};
 projectDialog.addEventListener('click',e=>{if(e.target.closest('[data-bh35-project-cancel]')){projectDialog.close();return}const sw=e.target.closest('[data-bh35-color]');if(sw)paintPalette(sw.dataset.bh35Color)});
@@ -2719,8 +2774,10 @@ projectDialog.querySelector('form').addEventListener('submit',e=>{e.preventDefau
 });
 document.addEventListener('click',e=>{
  const edit=e.target.closest('[data-bh35-edit-area]');if(edit){e.preventDefault();e.stopImmediatePropagation();projectForm('edit');return}
- const b=e.target.closest('[data-bh35-tab],[data-bh35-new-exercise],[data-bh35-delete-log],[data-bh35-reroll],[data-bh35-reroll-date],[data-bh35-week],[data-bh35-view-recipe],[data-bh35-open-private]');if(!b)return;
+ const b=e.target.closest('[data-bh36-view],[data-bh36-open-exercise],[data-bh35-tab],[data-bh35-new-exercise],[data-bh35-delete-log],[data-bh35-reroll],[data-bh35-reroll-date],[data-bh35-week],[data-bh35-view-recipe],[data-bh35-open-private]');if(!b)return;
  e.preventDefault();e.stopImmediatePropagation();
+ if(b.dataset.bh36View){statView=b.dataset.bh36View;if(statView!=='overview')chooseExercise();rememberStatView();render();return}
+ if(b.dataset.bh36OpenExercise){selectedType=b.dataset.bh36OpenExercise;statView='device';rememberStatView();render();return}
  if(b.dataset.bh35Tab){currentSection=b.dataset.bh35Tab;try{localStorage.setItem('brainhome-v34-current',currentSection)}catch{}render();return}
  if(b.hasAttribute('data-bh35-new-exercise')){const name=prompt('Gerät oder Trainingsart');if(!name?.trim())return;const cleaned=name.trim().slice(0,120);if(!typeNames().some(t=>t.toLocaleLowerCase('de')===cleaned.toLocaleLowerCase('de'))){types().push({id:uid(),name:cleaned});save();render()}return}
  if(b.dataset.bh35DeleteLog){const id=b.dataset.bh35DeleteLog,entry=logs().find(e=>e.id===id);if(!entry||!confirm(`Trainingseintrag „${entry.exercise}“ löschen?`))return;data.trainingLog=logs().filter(e=>e.id!==id);save();render();notice('Trainingseintrag gelöscht');return}
@@ -2736,7 +2793,7 @@ document.addEventListener('input',e=>{
  const current=[...rows.querySelectorAll('.bh35-set-row')].map(row=>({weight:row.querySelector('input[name^="weight-"]')?.value,reps:row.querySelector('input[name^="reps-"]')?.value}));
  rows.innerHTML=inputRows(Number(e.target.value),current);
 });
-document.addEventListener('change',e=>{if(e.target.id==='bh35StatSelect'){selectedType=e.target.value;render()}});
+document.addEventListener('change',e=>{if(e.target.id==='bh36ExerciseSelect'){selectedType=e.target.value;render()}});
 document.addEventListener('toggle',e=>{if(e.target.id==='bh35History'){historyOpen=e.target.open;try{localStorage.setItem('brainhome-v35-history-open',historyOpen?'yes':'no')}catch{}}},true);
 document.addEventListener('submit',e=>{
  if(e.target.id!=='bh35TrainingForm')return;e.preventDefault();e.stopImmediatePropagation();const f=e.target;
@@ -2794,7 +2851,46 @@ const style=document.createElement('style');style.textContent=`
 .bh34-week{display:grid;gap:3px}.bh34-week-row{display:grid;grid-template-columns:100px minmax(0,1fr) 26px;gap:9px;align-items:center;padding:10px;border-radius:9px}
 .bh34-week-row:nth-child(odd){background:#f0f5ef}.bh34-week-row.is-today{border:1px solid #bdd7bc}.bh34-week-row small{font-size:11px;color:#607264}.bh34-week-row span{font-size:13px;overflow-wrap:anywhere}
 .bh34-reroll-one{border:0;background:transparent;cursor:pointer;color:#50705a;font-size:18px}
-@media(max-width:720px){.bh34-body{padding:12px}.bh34-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.bh35-palette{grid-template-columns:repeat(4,minmax(0,1fr))}.bh35-bar-line{grid-template-columns:90px minmax(0,1fr) 52px}.bh35-training-form>.btn{width:100%}}
+/* V3.6: grouped pastel swatches, compact statistics tables, vertical trend */
+#bh35ProjectDialog{max-height:min(94dvh,900px);overflow:auto}
+#bh35ProjectDialog .modal{max-height:none}
+.bh35-palette{display:grid;grid-template-columns:1fr;gap:11px;max-height:min(48dvh,390px);overflow-y:auto;padding:4px 6px 9px 2px;scrollbar-gutter:stable}
+.bh36-palette-group h3{font-size:11px;margin:0 0 4px;color:#58715f;letter-spacing:.02em}
+.bh36-palette-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+.bh35-swatch{padding:3px;gap:3px;border-radius:9px}
+.bh35-swatch span{height:27px;border-radius:7px}
+.bh35-swatch small{font-size:9px;line-height:1.1}
+.bh36-stat-panel{display:grid;gap:12px;border:1px solid #d8e6db;border-radius:13px;background:#fbfdf9;padding:12px;min-width:0}
+.bh36-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.bh36-head h4{margin:0;color:#315540;font-size:14px}
+.bh36-switches{display:flex;gap:4px;border-radius:10px;background:#e9f0e8;padding:4px;max-width:100%}
+.bh36-switch{border:0;border-radius:7px;background:transparent;padding:8px 11px;font-size:12px;font-weight:650;color:#58715d;cursor:pointer;white-space:nowrap}
+.bh36-switch.is-selected,.bh36-switch[aria-pressed=true]{background:#fff;color:#1c4931;box-shadow:0 1px 4px #233a2923}
+.bh36-table-scroll{width:100%;overflow:auto;overscroll-behavior-x:contain;border:1px solid #e0e9df;border-radius:11px;background:white}
+.bh36-table{border-collapse:collapse;width:100%;min-width:510px;font-size:12px;font-variant-numeric:tabular-nums;color:#375540}
+.bh36-table th,.bh36-table td{padding:10px 11px;text-align:right;border-bottom:1px solid #e8eee7;white-space:nowrap}
+.bh36-table th:first-child,.bh36-table td:first-child{text-align:left;white-space:normal;min-width:140px;position:sticky;left:0;background:inherit}
+.bh36-table thead th{font-size:11px;font-weight:700;color:#5b7460;background:#eaf3e9;position:sticky;top:0;z-index:2}
+.bh36-table thead th:first-child{z-index:3;background:#eaf3e9}
+.bh36-table tbody tr:nth-child(odd){background:#f6faf5}
+.bh36-table tbody tr:nth-child(even){background:#fff}
+.bh36-table tfoot tr{font-weight:750;background:#e7f1e7}
+.bh36-table tr:last-child th,.bh36-table tr:last-child td{border-bottom:0}
+.bh36-device-link{font:inherit;font-weight:650;background:none;border:0;text-align:left;padding:0;color:#265d41;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.bh36-device-select{display:grid;gap:4px;font-size:11px;font-weight:700;color:#58715d;max-width:370px}
+.bh36-device-select select{width:100%;padding:9px;border:1px solid #cbd9ce;border-radius:8px;background:white;color:#2c543b}
+.bh36-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.bh36-summary .bh34-metric{padding:8px}
+.bh36-summary .bh34-metric strong{font-size:15px}
+.bh36-trend-unit{font-size:12px;font-weight:650;color:#4a6754}
+.bh36-columns{height:180px;display:flex;align-items:stretch;justify-content:space-around;gap:7px;padding:12px 3px 7px;border-radius:9px;background:linear-gradient(#f9fcf9,#eef5ed);overflow-x:auto}
+.bh36-col{flex:1 0 27px;max-width:65px;min-width:26px;display:grid;grid-template-rows:22px minmax(0,1fr) 18px;align-items:stretch;gap:3px;text-align:center;color:#466851}
+.bh36-col-number{font-size:10px;font-weight:700;white-space:nowrap}
+.bh36-col-plot{display:flex;align-items:flex-end;justify-content:center;height:100%;min-height:0;border-bottom:1px solid #b6c9b6}
+.bh36-col-bar{background:linear-gradient(#8bbda1,#578d70);border-radius:6px 6px 0 0;max-width:35px;width:80%;min-height:0}
+.bh36-col-date{font-size:9px;white-space:nowrap}
+@media(max-width:520px){.bh36-switch{padding:8px 9px;font-size:11px}.bh36-table{min-width:0;table-layout:fixed;font-size:10px}.bh36-table th,.bh36-table td{padding:9px 4px;white-space:normal;overflow-wrap:anywhere}.bh36-table th:first-child,.bh36-table td:first-child{min-width:0;width:34%;white-space:normal;position:static}.bh36-table thead th{font-size:9px}.bh36-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.bh36-palette-row{grid-template-columns:repeat(4,minmax(0,1fr))}.bh35-palette{max-height:42dvh}}
+@media(max-width:720px){.bh34-body{padding:12px}.bh34-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.bh35-palette{grid-template-columns:1fr}.bh35-bar-line{grid-template-columns:90px minmax(0,1fr) 52px}.bh35-training-form>.btn{width:100%}}
 @media(max-width:380px){.bh35-set-row{grid-template-columns:18px minmax(62px,1fr) minmax(90px,1.1fr)}.bh35-set-row input{padding:8px 6px}.bh34-week-row{grid-template-columns:75px minmax(0,1fr) 23px}}
 `;document.head.append(style);
 render();
