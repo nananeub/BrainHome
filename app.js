@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','knowledgeDocuments','taskEvents','vouchers','trainingTypes','trainingLog','mealSchedule','sportGoals','cleanRooms','cleanHistory','householdSettings'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','knowledgeDocuments','taskEvents','vouchers','trainingTypes','trainingLog','mealSchedule','sportGoals','cleanRooms','cleanHistory','householdSettings','calendarPreparations'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];result.taxAllowance=Number.isFinite(o?.taxAllowance)?o.taxAllowance:null;return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -129,7 +129,7 @@ function v1Home(){
  return `<div class="v1-home-title"><h2>Startseite</h2></div>
  <form class="v1-capture" id="v1CaptureForm"><label for="v1CaptureInput">Inbox</label><div class="v1-capture-row"><input id="v1CaptureInput" required maxlength="250" placeholder="Gedanken oder Eintrag festhalten" autocomplete="off"><button type="submit" class="btn primary">＋ Merken</button></div></form>
  ${cards?`<div class="v1-dash-grid">${cards}</div>`:''}
- <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${n.lifeArea||/^(Sport\s*(und|&|\+)\s*Essen|Lebenshaltung)$/i.test(n.name)?"Sport · Essen · Rituale":descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done&&String(x.priority||"").trim()!=="").length+" offene Aufgaben"}</small></button>`).join('')}</div></div>`;
+ <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${n.lifeArea||/^(Sport\s*(und|&|\+)\s*Essen|Lebenshaltung)$/i.test(n.name)?"Sport · Essen · Rituale":descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done).length+" offene Aufgaben"}</small></button>`).join('')}</div></div>`;
 }
 // Keep the two noisy home sections collapsed across refreshes and devices on this browser.
 document.addEventListener('toggle',event=>{
@@ -2912,7 +2912,7 @@ const findLife=()=>data.nodes.find(n=>n.parent===null&&(n.lifeArea===true||/^(?:
 function ensureLifeName(){const area=findLife();if(area&&(!area.lifeArea||area.name!=='Lebenshaltung')){area.lifeArea=true;area.name='Lebenshaltung';save()}return area}
 function areaIsLife(area){return !!area&&(area.lifeArea===true||/^(?:sport\s*(?:und|&|\+)\s*essen|lebenshaltung)$/i.test(String(area.name||'').trim()))}
 function taskCounts(){
- const skip=x=>!x||!isTask(x)||x.done||String(x.priority??'').trim()==='';
+ const skip=x=>!x||!isTask(x)||x.done;
  const counts=new Map();for(const root of data.nodes.filter(n=>n.parent===null)){
   if(areaIsLife(root)){counts.set(root.id,null);continue}
   counts.set(root.id,descendants(root.id).map(get).filter(n=>!skip(n)).length);
@@ -3167,6 +3167,8 @@ const getGoal=id=>goalArray().find(g=>g.id===id);
 const getRoom=id=>rooms().find(r=>r.id===id);
 const getItem=(r,id)=>r?.items?.find(i=>i.id===id);
 const dueDate=(last,freq)=>freq>0?(last?addDays(last,freq):day()):null;
+const cleaningCurrent=i=>!!i.lastDone&&!i.manualReset&&(!(Number(i.frequencyDays)>0)||addDays(i.lastDone,Number(i.frequencyDays))>day());
+const cleaningDue=i=>!cleaningCurrent(i);
 function dueEntries(){const out=[];for(const room of rooms())for(const item of room.items||[]){const freq=Number(item.frequencyDays)||0;if(!freq)continue;out.push({room,item,next:dueDate(item.lastDone,freq)})}return out.sort((a,b)=>(a.next||'').localeCompare(b.next||'')||a.room.name.localeCompare(b.room.name,'de'))}
 function sportGoalsHTML(){
  const g=goalArray();return `<section class="bh38-panel" aria-label="Sportziele"><div class="bh38-heading"><h3>🎯 Sportziele</h3><button type="button" class="btn" data-bh38-add-goal>＋ Ziel</button></div>
@@ -3188,12 +3190,13 @@ function sharedFood(){
  return `<div class="bh38-shared-food">${recipes||'<p class="muted">Kein Rezeptbuch gefunden. Die vorhandenen Rezepte unter Privat bleiben unverändert.</p>'}${sections}</div>`;
 }
 function houseHTML(){
- const next=dueEntries().slice(0,8),rs=rooms();
- return `<section class="bh34-body bh38-house"><section class="bh38-panel"><div class="bh38-heading"><h3>🧽 Putzplan</h3><button type="button" class="btn" data-bh38-add-room>＋ Raum</button></div>
- <div class="bh38-clean-table"><table><thead><tr><th scope="col">Raum / Bereich</th><th scope="col">Zuletzt</th><th scope="col">Aktion</th></tr></thead><tbody>${rs.map(r=>`<tr class="bh38-room-row"><th scope="row"><strong>${x(r.name)}</strong>${r.frequencyDays?`<small> · alle ${r.frequencyDays} Tage</small>`:''}</th><td>${x(nicerDate(r.lastDone))}</td><td><button type="button" class="mini" data-bh38-done-room="${x(r.id)}">✓</button><button class="mini" type="button" data-bh38-edit-room="${x(r.id)}">✎</button><button class="mini" type="button" data-bh38-remove-room="${x(r.id)}">×</button></td></tr>
- <tr><td colspan="3"><details class="bh38-room-details" data-bh38-room-open="${x(r.id)}" ${r.open?'open':''}><summary>Einzelne Putzaufgaben (${(r.items||[]).length})</summary><div class="bh38-clean-children">${(r.items||[]).map(i=>`<div class="bh38-clean-item"><div><strong>${x(i.name)}</strong><small>${x(nicerDate(i.lastDone))}${i.frequencyDays?` · alle ${i.frequencyDays} Tage`:''}</small></div><button type="button" class="mini" data-bh38-done-item="${x(r.id)}" data-item="${x(i.id)}">✓</button><button type="button" class="mini" data-bh38-edit-item="${x(r.id)}" data-item="${x(i.id)}">✎</button><button type="button" class="mini" data-bh38-remove-item="${x(r.id)}" data-item="${x(i.id)}">×</button></div>`).join('')}<button class="btn" type="button" data-bh38-add-item="${x(r.id)}">＋ Putzaufgabe</button></div></details></td></tr>`).join('')}</tbody></table></div></section>
- <section class="bh38-panel"><h3>Als Nächstes</h3>${next.length?next.map(e=>`<div class="bh38-next"><span><strong>${x(e.item.name)}</strong><small>${x(e.room.name)} · ${e.item.lastDone?'Fällig '+nicerDate(e.next):'Noch nie erledigt'}</small></span><button type="button" class="btn" data-bh38-done-item="${x(e.room.id)}" data-item="${x(e.item.id)}">✓ Gemacht</button></div>`).join(''):'<p class="muted">Trage bei einer Putzaufgabe ein Intervall ein, dann erscheint sie hier.</p>'}</section>
- <div id="bh38RitualSlot"></div></section>`;
+ const rs=rooms(),clean=dueEntries().filter(e=>cleaningDue(e.item)).slice(0,6);
+ const cell=(r,side)=>{const items=(r.items||[]).filter(i=>(i.column==='tidy'?'tidy':'clean')===side);
+  return `<div class="bh39-cell">${items.map(i=>`<label class="bh39-clean-line"><input type="checkbox" data-bh39-check="${x(r.id)}" data-item="${x(i.id)}" ${cleaningCurrent(i)?'checked':''}><span class="${cleaningCurrent(i)?'is-checked':''}" data-bh39-edit-item="${x(r.id)}" data-item="${x(i.id)}" title="Antippen zum Bearbeiten">${x(i.name)}</span></label>`).join('')}<button type="button" class="bh39-plus" aria-label="${side==='tidy'?'Aufräumaufgabe':'Putzaufgabe'} hinzufügen" data-bh39-add-clean="${x(r.id)}" data-column="${side}">＋</button></div>`};
+ return `<section class="bh34-body bh38-house bh39-house"><section class="bh39-white-plan"><div class="bh39-plan-header"><h3>Putzplan</h3><button type="button" class="bh39-plus" aria-label="Raum hinzufügen" title="Raum hinzufügen" data-bh38-add-room>＋</button></div>
+ <div class="bh39-table"><div class="bh39-table-head"><strong>Aufräumen</strong><strong>Putzen</strong></div>${rs.map(r=>`<section class="bh39-room"><div class="bh39-room-title"><button type="button" data-bh39-edit-room="${x(r.id)}" title="Raum bearbeiten (auch löschen)">${x(r.name)}</button><label title="Den gesamten Raum als gemacht markieren"><input type="checkbox" data-bh39-check="${x(r.id)}" ${cleaningCurrent(r)?'checked':''}> Raum</label></div><div class="bh39-room-cells">${cell(r,'tidy')}${cell(r,'clean')}</div></section>`).join('')}</div>
+ <div class="bh39-clean-stats"><h4>Zuletzt erledigt</h4>${(data.cleanHistory||[]).slice(-12).reverse().map(h=>`<div><span>${x(h.name)}</span><time>${x(nicerDate(h.date))}</time></div>`).join('')||'<p class="muted">Noch keine Einträge.</p>'}</div>
+ </section><section class="bh39-next" ${clean.length?'':'hidden'}><strong>Als Nächstes</strong>${clean.map(e=>`<span>${x(e.room.name)} · ${x(e.item.name)}</span>`).join('')}</section><div id="bh38RitualSlot"></div></section>`;
 }
 // Render after the existing, fully tested v3.7 navigation and data pipeline.
 const previousRender=render;
@@ -3218,7 +3221,7 @@ render=function(...args){
  }
  if(data.tab==='projects'||data.tab==='home'){
    const p=life();if(p){const el=root.querySelector(`.project[data-id="${CSS.escape(p.id)}"] small`);
-     if(el){const due=(data.routines||[]).filter(r=>(r.asTask===true||(r.asTask==null&&r.priority==='sofort'))&&routineDue(r)).length;el.textContent=`${due} offene Aufgaben`;}
+     if(el){const due=(data.routines||[]).filter(r=>r.asTask===true&&routineDue(r)).length;const cleaning=rooms().flatMap(r=>[r,...(r.items||[])]).filter(i=>i.asTask===true&&cleaningDue(i)).length;const tasks=data.nodes.filter(n=>isTask(n)&&!n.done&&rootOf(n)?.id===p.id).length;el.textContent=`${due+cleaning+tasks} offene Aufgaben`;}
    }
  }
  const f=root.querySelector('.bh27-foundation-appointments');if(f){
@@ -3230,28 +3233,28 @@ render=function(...args){
  return result;
 };
 // Generic edit dialog for cleaning rooms and their individually scheduled items.
-const editDlg=document.createElement('dialog');editDlg.className='bh38-editor';editDlg.innerHTML=`<form class="modal"><h2 id="bh38EditTitle"></h2><label class="field">Name<input name="name" maxlength="140" required></label><label class="field">Reinigungsintervall in Tagen (optional)<input name="frequencyDays" type="number" min="0" max="3650" step="1" placeholder="z. B. 7"></label><label class="field">Zuletzt gereinigt<input type="date" name="lastDone"></label><footer><button class="btn" type="button" data-bh38-cancel>Abbrechen</button><button class="btn primary" type="submit">Speichern</button></footer></form>`;document.body.append(editDlg);
+const editDlg=document.createElement('dialog');editDlg.className='bh38-editor';editDlg.innerHTML=`<form class="modal"><h2 id="bh38EditTitle"></h2><label class="field">Name<input name="name" maxlength="140" required></label><label class="field">Reinigungsintervall in Tagen (optional)<input name="frequencyDays" type="number" min="0" max="3650" step="1" placeholder="z. B. 7"></label><label class="field">Zuletzt gereinigt<input type="date" name="lastDone"></label><label class="field" id="bh39ColumnField">Bereich<select name="column"><option value="tidy">Aufräumen</option><option value="clean">Putzen</option></select></label><label class="field bh39-task-option"><input type="checkbox" name="asTask"> Als offene Aufgabe zählen, wenn fällig</label><footer><button class="btn" type="button" data-bh38-cancel>Abbrechen</button><button class="btn primary" type="submit">Speichern</button></footer></form>`;document.body.append(editDlg);
 let editing=null;
 function editCleaning(kind,roomId=null,itemId=null){
  editing={kind,roomId,itemId};const room=getRoom(roomId),obj=kind==='room'?room:getItem(room,itemId),f=editDlg.querySelector('form');
- f.elements.name.value=obj?.name||'';f.elements.frequencyDays.value=obj?.frequencyDays||'';f.elements.lastDone.value=obj?.lastDone||'';
+ f.elements.name.value=obj?.name||'';f.elements.frequencyDays.value=obj?.frequencyDays||'';f.elements.lastDone.value=obj?.lastDone||'';f.elements.column.value=obj?.column||'clean';f.elements.asTask.checked=obj?.asTask===true;editDlg.querySelector('#bh39ColumnField').hidden=kind==='room';
  editDlg.querySelector('#bh38EditTitle').textContent=kind==='room'?(obj?'Raum bearbeiten':'Raum hinzufügen'):(obj?'Putzaufgabe bearbeiten':'Putzaufgabe hinzufügen');editDlg.showModal();
 }
 editDlg.querySelector('[data-bh38-cancel]').onclick=()=>editDlg.close();
 editDlg.querySelector('form').addEventListener('submit',e=>{
  e.preventDefault();if(!editing)return;const f=e.target,name=f.elements.name.value.trim(),freq=Number(f.elements.frequencyDays.value||0),last=f.elements.lastDone.value;
  if(!name||!Number.isInteger(freq)||freq<0||freq>3650)return;
- const rs=mutableRooms(),room=rs.find(r=>r.id===editing.roomId);
+ const rs=mutableRooms(),room=rs.find(r=>r.id===editing.roomId),asTask=f.elements.asTask.checked,column=f.elements.column.value;
  if(editing.kind==='room'){
-   const existing=room||{id:uid(),items:[]};Object.assign(existing,{name,frequencyDays:freq,lastDone:last});if(!room)rs.push(existing);
+   const existing=room||{id:uid(),items:[]};Object.assign(existing,{name,frequencyDays:freq,lastDone:last,asTask});if(!room)rs.push(existing);
  }else{
    if(!room)return;room.items=Array.isArray(room.items)?room.items:[];
-   const item=room.items.find(i=>i.id===editing.itemId)||{id:uid()};Object.assign(item,{name,frequencyDays:freq,lastDone:last});if(!room.items.some(i=>i.id===item.id))room.items.push(item);
+   const item=room.items.find(i=>i.id===editing.itemId)||{id:uid()};Object.assign(item,{name,frequencyDays:freq,lastDone:last,column,asTask});if(!room.items.some(i=>i.id===item.id))room.items.push(item);
  }
  save();editDlg.close();render();
 });
 function markCleaning(roomId,itemId){const r=mutableRooms().find(q=>q.id===roomId);if(!r)return;
- const obj=itemId?getItem(r,itemId):r;if(!obj)return;obj.lastDone=day();
+ const obj=itemId?getItem(r,itemId):r;if(!obj)return;obj.lastDone=day();obj.manualReset=false;
  list('cleanHistory').push({id:uid(),roomId:r.id,itemId:itemId||null,name:obj.name,date:day(),at:new Date().toISOString()});save();render();notice('Reinigung gespeichert');
 }
 function captureOpenRooms(){const host=root.querySelector('.bh38-house');if(!host)return;for(const el of host.querySelectorAll('.bh38-room-details')){
@@ -3259,6 +3262,22 @@ function captureOpenRooms(){const host=root.querySelector('.bh38-house');if(!hos
  const room=mutableRooms().find(r=>r.name===roomName);if(room)room.open=el.open;
  }}
 // Goals and cleaning interactions: all existing data is only mutated by explicit actions.
+document.addEventListener('click',e=>{
+ const trigger=e.target.closest('[data-bh39-add-clean],[data-bh39-edit-item],[data-bh39-edit-room]');if(!trigger)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(trigger.dataset.bh39AddClean){editCleaning('item',trigger.dataset.bh39AddClean);editDlg.querySelector('form').elements.column.value=trigger.dataset.column||'clean'}
+ else if(trigger.dataset.bh39EditItem)editCleaning('item',trigger.dataset.bh39EditItem,trigger.dataset.item);
+ else if(trigger.dataset.bh39EditRoom){const r=getRoom(trigger.dataset.bh39EditRoom);if(!r)return;const choice=prompt('Raum: Name ändern oder zum Entfernen „LÖSCHEN“ eingeben',r.name);if(choice===null)return;if(choice.trim().toUpperCase()==='LÖSCHEN'){
+   if(confirm(`Raum „${r.name}“ und seine ${(r.items||[]).length} Putzpunkte entfernen?`)){data.cleanRooms=mutableRooms().filter(q=>q.id!==r.id);save();render()}
+ }else if(choice.trim()){mutableRooms().find(q=>q.id===r.id).name=choice.trim();save();render()}}
+},true);
+document.addEventListener('change',e=>{
+ const clean=e.target.closest('[data-bh39-check]');if(clean){const r=mutableRooms().find(q=>q.id===clean.dataset.bh39Check),obj=clean.dataset.item?getItem(r,clean.dataset.item):r;if(!obj)return;
+   if(clean.checked){markCleaning(r.id,clean.dataset.item)}else{obj.manualReset=true;save();render()}return;
+ }
+ const ready=e.target.closest('[data-bh39-prepared]');if(ready){const id=ready.dataset.bh39Prepared;if(!id)return;const arr=prepList(),entry=arr.find(q=>q.id===id);if(entry){entry.done=ready.checked;entry.updatedAt=new Date().toISOString()}else arr.push({id,done:ready.checked,updatedAt:new Date().toISOString()});save();render();}
+},true);
+document.addEventListener('toggle',e=>{const d=e.target.closest?.('[data-bh39-fold]');if(!d)return;try{localStorage.setItem('brainhome-v39-'+(d.dataset.bh39Fold==='google'?'google-open':'appointments-open'),d.open?'1':'0')}catch{}},true);
 document.addEventListener('click',e=>{
  const b=e.target.closest('[data-bh38-tab],[data-bh38-add-goal],[data-bh38-edit-goal],[data-bh38-remove-goal],[data-bh38-edit-level],[data-bh38-remove-level],[data-bh38-add-room],[data-bh38-edit-room],[data-bh38-remove-room],[data-bh38-add-item],[data-bh38-edit-item],[data-bh38-remove-item],[data-bh38-done-room],[data-bh38-done-item],[data-bh38-add-recipe],[data-bh38-recipe]');
  if(!b)return;e.preventDefault();e.stopImmediatePropagation();
@@ -3310,7 +3329,7 @@ async function loadGoogleMonth(force=false){
  loadingGoogle=true;googleError='';googleStatus='Google-Termine laden …';pendingKey=month;decorateCalendar();
  try{
   const [start,end]=monthEdges(month);const calendars=await googleFetch('users/me/calendarList',{maxResults:100});
-  const active=(calendars.items||[]).filter(c=>c.selected!==false&&!c.hidden).slice(0,20);
+  const active=(calendars.items||[]).filter(c=>{const id=String(c.id||'').toLowerCase(),name=String(c.summary||'');return c.selected!==false&&!c.hidden&&!(/holiday@group\.v\.calendar\.google\.com|#holiday@/i.test(id)||/^(?:Feiertage(?: in .*)?|Holidays(?: in .*)?|Public holidays(?: in .*)?|Gesetzliche Feiertage.*)$/i.test(name))}).slice(0,20);
   calendarNames=active.map(c=>c.summary||c.id);const all=[];
   for(const c of active){let pageToken;let page=0;do{
     const response=await googleFetch(`calendars/${encodeURIComponent(c.id)}/events`,{singleEvents:'true',orderBy:'startTime',timeMin:start,timeMax:end,maxResults:250,pageToken});
@@ -3327,31 +3346,42 @@ function eventDays(ev){const start=gDate(ev),end=ev.allDay?ev.end?.date:joinDay(
  const until=ev.allDay&&end?addDays(end,-1):end||start;const out=[];for(let date=start,k=0;date&&date<=until&&k<75;date=addDays(date,1),k++)out.push(date);return out;
 }
 const gTime=ev=>ev.allDay?'Ganztägig':(ev.start.dateTime?new Date(ev.start.dateTime).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'}):'');
-function googleBar(){const connected=googleReady();const label=googleError?'⚠ '+googleError:googleStatus||(connected?'Google verbunden':'Google Kalender lesen (keine Änderungen an Google)');
- return `<section class="bh38-googlebar" aria-label="Google Kalender verbinden"><div class="bh38-heading"><h3>Google Kalender</h3>${connected?'<span class="bh38-connected">● Verbunden</span>':''}</div>
- ${!clientId?`<div class="bh38-google-setup"><label>OAuth-Client-ID (Web-App)<input id="bh38ClientInput" type="text" placeholder="…apps.googleusercontent.com" autocomplete="off"></label><button class="btn" data-bh38-save-client>Einrichten</button><small>Einmalig eine Client-ID aus der Google Cloud Console eintragen (siehe Anleitung in der ZIP).</small></div>`:''}
- <div class="bh38-google-actions">${clientId?`<button class="btn primary" data-bh38-connect-google>${connected?'Erneut anmelden':'Mit Google verbinden'}</button><button class="btn" data-bh38-change-client title="Client-ID ändern">⚙</button>`:''}${connected?`<button class="btn" data-bh38-refresh-google ${loadingGoogle?'disabled':''}>⟳ Aktualisieren</button><button class="btn" data-bh38-disconnect-google>Trennen</button>`:''}</div>
- <p class="bh38-google-status" role="status">${x(label)}</p></section>`;
+function googleBar(){const connected=googleReady();const label=googleError?'⚠ '+googleError:googleStatus||(connected?'Google verbunden':'Google verbinden');
+ let open=false;try{open=localStorage.getItem('brainhome-v39-google-open')==='1'}catch{}
+ return `<details class="bh39-settings" data-bh39-fold="google" ${open?'open':''}><summary>⚙ Kalender-Verbindung <span>${connected?'● Verbunden':'Einrichten'}</span></summary><div class="bh39-settings-inner">
+ ${!clientId?`<div class="bh38-google-setup"><label>OAuth-Client-ID (Web-App)<input id="bh38ClientInput" type="text" placeholder="…apps.googleusercontent.com" autocomplete="off"></label><button class="btn" data-bh38-save-client>Einrichten</button></div>`:''}
+ <div class="bh38-google-actions">${clientId?`<button type="button" class="btn" data-bh38-connect-google>${connected?'Neu verbinden':'Mit Google verbinden'}</button><button type="button" class="mini" data-bh38-change-client>⚙ Client-ID</button>`:''}${connected?`<button type="button" class="btn" data-bh38-refresh-google ${loadingGoogle?'disabled':''}>⟳ Aktualisieren</button><button type="button" class="btn" data-bh38-disconnect-google>Trennen</button>`:''}<button type="button" class="btn" data-bh37-ics>⇩ ICS-Export</button></div><small role="status">${x(label)}</small></div></details>`;
 }
+function prepList(){return list('calendarPreparations')}
+function isPrepared(id){return prepList().some(p=>p.id===id&&p.done)}
+function isUpcoming(event){
+ const today=day();if(event.date<today)return false;if(event.date>today)return true;
+ if(!event.timestamp)return true;return event.timestamp>Date.now();
+}
+function googleAsEntry(ev){const start=gDate(ev),end=ev.allDay?addDays(ev.end?.date||'',-1):joinDay(ev.end?.dateTime||ev.start?.dateTime);const date=start<day()&&end>=day()?day():start;
+ const timestamp=ev.allDay?null:Date.parse((start<day()&&end>=day()?ev.end?.dateTime:ev.start?.dateTime)||'');
+ return {id:'google:'+ev.id,date,name:ev.title,time:gTime(ev),timestamp,source:'google',url:ev.htmlLink||'',done:false}}
+function localAsEntry(ev){const time=/^([01]\d|2[0-3]):[0-5]\d$/.test(ev.time||'')?ev.time:null;
+ return {id:'brainhome:'+ev.id,date:ev.due,name:ev.name,time:time||'',timestamp:time?new Date(ev.due+'T'+time+':00').getTime():null,source:'brainhome',done:ev.done}}
+function entryHtml(ev){const ready=isPrepared(ev.id),grey=ready||ev.done;return `<div class="bh39-event ${grey?'is-prepared':''}"><label><input type="checkbox" data-bh39-prepared="${x(ev.id)}" ${ready?'checked':''} ${ev.done?'disabled':''} title="Vorbereitung abgeschlossen"><span>${x(ev.date.slice(8)+'.'+ev.date.slice(5,7)+'.')}</span><strong>${x(ev.name)}</strong></label><small>${x(ev.time)}</small>${ev.source==='brainhome'?`<button class="mini" type="button" title="Aufgabe bearbeiten" data-bh37-open-node="${x(ev.id.slice(10))}">✎</button>`:ev.url.startsWith('https://')?`<a href="${x(ev.url)}" target="_blank" rel="noopener noreferrer" aria-label="In Google Kalender öffnen">↗</a>`:''}</div>`}
 function decorateCalendar(){
  const host=root.querySelector('.bh37-calendar');if(!host)return;
- host.querySelector('.bh38-googlebar')?.remove();host.insertAdjacentHTML('afterbegin',googleBar());
- if(!googleReady()||fetchedMonth!==calendarMonthKey()){if(clientId&&!window.google?.accounts?.oauth2&&!loadingGoogle)void loadGIS().catch(()=>{});if(googleReady()&&!loadingGoogle)void loadGoogleMonth();return}
- const grouped=new Map();for(const ev of googleEvents)for(const date of eventDays(ev)){if(!date.startsWith(calendarMonthKey()))continue;const items=grouped.get(date)||[];items.push(ev);grouped.set(date,items)}
- for(const btn of host.querySelectorAll('[data-bh37-day]')){const n=grouped.get(btn.dataset.bh37Day)?.length||0;if(!n)continue;
-  const old=btn.querySelector('.bh37-dot-count'),previous=Number(old?.textContent||0);if(old)old.textContent=previous+n;else btn.insertAdjacentHTML('beforeend',`<span class="bh37-dot-count">${n}</span>`);
+ host.querySelector('.bh38-googlebar,.bh39-settings')?.remove();host.insertAdjacentHTML('afterbegin',googleBar());
+ host.querySelector('.bh37-export')?.remove();
+ // Render one unified, collapsible list of future items from both calendars.
+ const month=calendarMonthKey();const googleActive=googleReady()&&fetchedMonth===month;
+ const local=window.BH37.datedEntries().filter(e=>e.due.startsWith(month)).map(localAsEntry);
+ const remote=googleActive?googleEvents.map(googleAsEntry):[];
+ const all=[...local,...remote].filter(isUpcoming).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+ host.querySelector('.bh37-appointments')?.remove();host.querySelector('.bh37-month-list')?.remove();
+ // The calendar itself remains selectable; the list below is always consolidated.
+ const old=host.querySelector('.bh39-upcoming');old?.remove();
+ let open=false;try{open=localStorage.getItem('brainhome-v39-appointments-open')==='1'}catch{}
+ host.insertAdjacentHTML('beforeend',`<details class="bh39-upcoming" data-bh39-fold="appointments" ${open?'open':''}><summary>📋 Anstehende Termine <span>${all.length}</span></summary><div class="bh39-events">${all.length?all.map(entryHtml).join(''):'<p class="muted">Keine anstehenden Termine in diesem Monat.</p>'}</div></details>`);
+ if(googleActive){const grouped=new Map();for(const ev of googleEvents)for(const date of eventDays(ev)){if(!date.startsWith(month))continue;grouped.set(date,(grouped.get(date)||0)+1)}
+  for(const btn of host.querySelectorAll('[data-bh37-day]')){const n=grouped.get(btn.dataset.bh37Day)||0;if(!n)continue;const old=btn.querySelector('.bh37-dot-count'),before=Number(old?.textContent||0);if(old)old.textContent=before+n;else btn.insertAdjacentHTML('beforeend',`<span class="bh37-dot-count">${n}</span>`)}
  }
- const selected=host.querySelector('.bh37-day.selected')?.dataset.bh37Day||day();
- const todayEntries=(grouped.get(selected)||[]).slice().sort((a,b)=>gTime(a).localeCompare(gTime(b)));
- const dayPanel=host.querySelector('.bh37-appointments');if(dayPanel){
-   dayPanel.querySelector('.bh38-google-events')?.remove();
-   if(todayEntries.length){const empty=dayPanel.querySelector('p.muted');if(empty&&/Für diesen Tag ist nichts/i.test(empty.textContent))empty.textContent='Keine BrainHome-Aufgaben an diesem Tag.';}
-   dayPanel.insertAdjacentHTML('beforeend',`<div class="bh38-google-events">${todayEntries.map(ev=>`<div class="bh38-google-event"><span>🗓️</span><div><strong>${x(ev.title)}</strong><small>${x(gTime(ev))} · ${x(ev.calendar)}</small></div>${ev.htmlLink?.startsWith('https://')?`<a href="${x(ev.htmlLink)}" target="_blank" rel="noopener noreferrer">↗</a>`:''}</div>`).join('')}</div>`);
- }
- const monthPanel=host.querySelector('.bh37-month-list');if(monthPanel){
-   monthPanel.querySelector('.bh38-google-month')?.remove();
-   monthPanel.insertAdjacentHTML('beforeend',`<div class="bh38-google-month"><h3>Google Kalender · ${googleEvents.length}</h3>${googleEvents.slice(0,150).map(ev=>`<div class="bh38-google-event"><time>${x((gDate(ev)||'').slice(8,10))}.${x((gDate(ev)||'').slice(5,7))}.</time><div><strong>${x(ev.title)}</strong><small>${x(gTime(ev))} · ${x(ev.calendar)}</small></div>${ev.htmlLink?.startsWith('https://')?`<a href="${x(ev.htmlLink)}" target="_blank" rel="noopener noreferrer">↗</a>`:''}</div>`).join('')||'<p class="muted">Keine Google-Termine in diesem Monat.</p>'}</div>`);
- }
+ if(googleReady()&&!googleActive&&!loadingGoogle)void loadGoogleMonth();
 }
 document.addEventListener('click',async e=>{
  const button=e.target.closest('[data-bh38-save-client],[data-bh38-change-client],[data-bh38-connect-google],[data-bh38-refresh-google],[data-bh38-disconnect-google]');if(!button)return;
@@ -3388,6 +3418,14 @@ const css=document.createElement('style');css.textContent=`
 .bh38-google-events,.bh38-google-month{padding-top:10px}.bh38-google-month{border-top:1px solid #e5eee5;margin-top:15px}.bh38-google-event{display:flex;gap:9px;align-items:center;padding:9px 4px;border-top:1px solid #eaf0e9;color:#375a40;font-size:12px}.bh38-google-event>div{flex:1;min-width:0}.bh38-google-event strong{display:block;overflow-wrap:anywhere}.bh38-google-event small{color:#799080;font-size:10px}.bh38-google-event a{color:#3e7b55;text-decoration:none}.bh38-google-event time{color:#6a8d72;font-size:11px}
 @media(max-width:500px){.bh38-panel,.bh38-recipes{padding:12px;margin:8px}.bh38-clean-table th,.bh38-clean-table td{font-size:10px;padding:8px 3px}.bh38-clean-item{padding:6px 2px}.bh38-house{padding:6px}.bh38-tabs button{font-size:12px;padding:11px 2px}}
 `;document.head.append(css);
+const polish=document.createElement('style');polish.textContent=`
+.bh37-calendar .bh37-calendar-help{display:none}
+.bh39-settings{border:1px solid #e0e7df;border-radius:10px;background:white;margin:0 0 10px;font-size:12px}
+.bh39-settings>summary{cursor:pointer;padding:8px 12px;font-size:12px;font-weight:650;color:#56705c;list-style:none}.bh39-settings>summary::-webkit-details-marker{display:none}.bh39-settings>summary:before{content:'▸ ';color:#859b86}.bh39-settings[open]>summary:before{content:'▾ '}.bh39-settings>summary span{float:right;font-size:10px;font-weight:400}.bh39-settings-inner{padding:5px 11px 12px;border-top:1px solid #eef3ee}.bh39-settings-inner small{display:block;margin-top:9px;color:#819182;font-size:10px}
+.bh39-upcoming{margin:12px 0;border:1px solid #dfe8df;border-radius:12px;background:white}.bh39-upcoming>summary{padding:13px;cursor:pointer;font-weight:700;list-style:none;color:#365943}.bh39-upcoming>summary::-webkit-details-marker{display:none}.bh39-upcoming>summary:before{content:'▸ ';color:#729177}.bh39-upcoming[open]>summary:before{content:'▾ '}.bh39-upcoming>summary span{float:right;font-weight:500;color:#809181}.bh39-events{padding:0 10px 10px}.bh39-event{display:flex;align-items:center;gap:7px;border-top:1px solid #eff2ef;padding:10px 2px;font-size:12px;min-width:0}.bh39-event label{display:flex;align-items:center;gap:7px;flex:1;min-width:0}.bh39-event label input{flex-shrink:0;width:17px;height:17px;accent-color:#6c9875}.bh39-event label strong{overflow-wrap:anywhere;min-width:0}.bh39-event label span{font-size:10px;color:#8c9b8f;white-space:nowrap}.bh39-event small{font-size:10px;color:#788a7c;white-space:nowrap}.bh39-event a{color:#498264;text-decoration:none}.bh39-event.is-prepared{opacity:.48;background:#f5f6f5}.bh39-event.is-prepared strong{text-decoration:line-through}
+.bh39-house{background:transparent}.bh39-white-plan{background:#fff;border:1px solid #e4e6e3;border-radius:11px;padding:13px}.bh39-plan-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.bh39-plan-header h3{font-size:15px;color:#394b40;margin:0}.bh39-plus{border:0;background:transparent;color:#72957d;font-size:20px;padding:2px 8px;cursor:pointer}.bh39-table{border:1px solid #e0e5e0;background:white}.bh39-table-head,.bh39-room-cells{display:grid;grid-template-columns:1fr 1fr}.bh39-table-head>strong{text-align:center;padding:9px 5px;font-size:12px;background:#fff;border-bottom:1px solid #dbe3db}.bh39-table-head>strong+strong,.bh39-room-cells>.bh39-cell+.bh39-cell{border-left:1px solid #dbe3db}.bh39-room{border-bottom:1px solid #dbe3db}.bh39-room:last-child{border-bottom:0}.bh39-room-title{display:flex;justify-content:space-between;align-items:center;background:#fafbfa;padding:8px 10px;border-top:1px solid #e2e8e2}.bh39-room-title button{border:0;background:none;font-size:12px;font-weight:700;color:#485d4d;text-align:left;padding:0}.bh39-room-title label{display:flex;gap:4px;align-items:center;font-size:10px;color:#8d9b90}.bh39-room-title input{width:14px;height:14px;accent-color:#7b9f85}.bh39-cell{min-width:0;display:grid;align-content:start;padding:7px;gap:5px;min-height:44px}.bh39-clean-line{display:flex;gap:7px;align-items:center;color:#465c4b;font-size:12px;cursor:pointer;min-width:0}.bh39-clean-line input{width:16px;height:16px;flex-shrink:0;accent-color:#84a78c}.bh39-clean-line span{overflow-wrap:anywhere}.bh39-clean-line span.is-checked{color:#9ba69d;text-decoration:line-through}.bh39-cell>.bh39-plus{justify-self:start;font-size:17px;padding:1px 3px}.bh39-clean-stats{margin-top:15px}.bh39-clean-stats h4{font-size:12px;color:#667968;margin:0 0 6px}.bh39-clean-stats>div{display:flex;gap:12px;justify-content:space-between;border-top:1px solid #eff2ef;padding:7px 2px;font-size:11px;color:#67806d}.bh39-clean-stats time{white-space:nowrap}.bh39-next{padding:10px 14px;border:1px solid #e4e9e4;border-radius:10px;background:white;margin-top:9px;color:#55715c;font-size:12px}.bh39-next strong{display:block;margin-bottom:6px}.bh39-next span{display:block;margin-top:3px}.bh39-task-option{display:flex!important;align-items:center;flex-direction:row;gap:9px!important}.bh39-task-option input{width:18px;height:18px}
+@media(max-width:440px){.bh39-white-plan{padding:8px}.bh39-cell{padding:6px 5px}.bh39-clean-line{font-size:10px;gap:4px}.bh39-event{flex-wrap:wrap}.bh39-event label{flex-basis:80%}}
+`;document.head.append(polish);
 window.BH38={ownRituals:true,rooms,goalArray,googleStatus:()=>googleStatus};
 render();
 })();
