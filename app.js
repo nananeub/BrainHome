@@ -129,7 +129,7 @@ function v1Home(){
  return `<div class="v1-home-title"><h2>Startseite</h2></div>
  <form class="v1-capture" id="v1CaptureForm"><label for="v1CaptureInput">Inbox</label><div class="v1-capture-row"><input id="v1CaptureInput" required maxlength="250" placeholder="Gedanken oder Eintrag festhalten" autocomplete="off"><button type="submit" class="btn primary">＋ Merken</button></div></form>
  ${cards?`<div class="v1-dash-grid">${cards}</div>`:''}
- <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done).length} offene Aufgaben</small></button>`).join('')}</div></div>`;
+ <div class="v1-home-areas"><div class="v1-title-row"><h3>Lebensbereiche</h3><button class="v1-small-plus" data-action="main-add" title="Neuen Lebensbereich anlegen" aria-label="Neuen Lebensbereich anlegen">＋</button></div><div class="project-grid">${data.nodes.filter(n=>n.parent===null).map(n=>`<button class="project" data-action="project" data-id="${v1Html(n.id)}"><strong>${v1Html(n.emoji||'🌿')} ${v1Html(n.name)}</strong><small>${n.lifeArea||/^(Sport\s*(und|&|\+)\s*Essen|Lebenshaltung)$/i.test(n.name)?"Sport · Essen · Rituale":descendants(n.id).map(get).filter(x=>x&&isTask(x)&&!x.done&&String(x.priority||"").trim()!=="").length+" offene Aufgaben"}</small></button>`).join('')}</div></div>`;
 }
 // Keep the two noisy home sections collapsed across refreshes and devices on this browser.
 document.addEventListener('toggle',event=>{
@@ -476,11 +476,11 @@ const saveSort=()=>{try{localStorage.setItem(SORT_KEY,JSON.stringify({mode:sortM
 // The route is UI-only, and does not trigger a cloud upload.
 function rememberRoute(){
  if(!bhRouteReady)return;
- if(!['home','projects','tree','inbox','all','history','search','knowledge'].includes(data.tab))return;
+ if(!['home','projects','tree','inbox','all','history','calendar','search','knowledge'].includes(data.tab))return;
  try{localStorage.setItem(ROUTE_KEY,JSON.stringify({tab:data.tab,active:data.tab==='tree'?data.active:null}))}catch{}
 }
 function restoreRoute(){
- try{const last=JSON.parse(localStorage.getItem(ROUTE_KEY)||'null');if(!last||!['home','projects','tree','inbox','all','history','search','knowledge'].includes(last.tab))return;
+ try{const last=JSON.parse(localStorage.getItem(ROUTE_KEY)||'null');if(!last||!['home','projects','tree','inbox','all','history','calendar','search','knowledge'].includes(last.tab))return;
   if(last.tab==='tree'){
    if(!get(last.active)||get(last.active).parent!==null)return;
    data.active=last.active;
@@ -1499,13 +1499,13 @@ const visibleRoute = () => ({tab:data.tab, active:data.tab==='tree'?data.active:
 // to this navigation record are transmitted to Firebase or saved in task history.
 function routeSave() {
  const route=visibleRoute();
- if (!['home','projects','tree','inbox','all','history','search','knowledge'].includes(route.tab)) return;
+ if (!['home','projects','tree','inbox','all','history','calendar','search','knowledge'].includes(route.tab)) return;
  try {localStorage.setItem(ACTIVE_ROUTE,JSON.stringify(route));localStorage.setItem('brainhome-v13-last-view',JSON.stringify(route));}catch(e){console.warn('Navigation',e)}
 }
 function routeRestore() {
  try {
   const route=JSON.parse(localStorage.getItem(ACTIVE_ROUTE)||localStorage.getItem('brainhome-v13-last-view')||'null');
-  if(!route || !['home','projects','tree','inbox','all','history','search','knowledge'].includes(route.tab))return;
+  if(!route || !['home','projects','tree','inbox','all','history','calendar','search','knowledge'].includes(route.tab))return;
   if(route.tab==='tree'){
    const root=get(route.active);
    if(!root || root.parent!==null)return;
@@ -1621,7 +1621,7 @@ function resetKnown(){known=new Map((data.nodes||[]).map(n=>[n.id,{task:isTaskRe
 const prevApply=window.BH10?.applyData;
 if(prevApply){window.BH10.applyData=function(payload){const route=visibleRoute();const result=prevApply(payload);resetKnown();
  if(route.tab==='tree'&&get(route.active)) {data.tab='tree';data.active=route.active;}
- else if(['home','projects','inbox','all','history','search','knowledge'].includes(route.tab))data.tab=route.tab;
+ else if(['home','projects','inbox','all','history','calendar','search','knowledge'].includes(route.tab))data.tab=route.tab;
  routeSave();render();return result;};}
 
 // Completion without an assignment: discard Inbox capture. A capture explicitly
@@ -1655,7 +1655,7 @@ function adjustInbox() {
 }
 
 // Notes live on the original root node, synced by the existing cloud export.
-const dlg=document.createElement('dialog');dlg.className='bh25-notes-dialog';dlg.innerHTML=`<form class="modal" id="bh25NotesForm"><h2 id="bh25NotesHeading">Bereichsnotizen</h2><label class="field">Notizen<textarea id="bh25NotesBody" rows="12" placeholder="Gedanken, Ideen, Zusammenfassungen …"></textarea></label><footer><button type="button" id="bh25NotesCancel" class="btn">Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
+const dlg=document.createElement('dialog');dlg.className='bh25-notes-dialog';dlg.innerHTML=`<form class="modal" id="bh25NotesForm"><h2 id="bh25NotesHeading">Lager</h2><label class="field">Lager<textarea id="bh25NotesBody" rows="12" placeholder="Gedanken, Ideen, Zusammenfassungen …"></textarea></label><footer><button type="button" id="bh25NotesCancel" class="btn">Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
 document.body.append(dlg);
 let notesRoot=null;
 dlg.querySelector('#bh25NotesCancel').onclick=()=>dlg.close();
@@ -1665,11 +1665,11 @@ function addNotesButton() {
  const root=get(data.active),bar=document.querySelector('#app .topline');if(!root||!bar)return;
  if(bar.querySelector('[data-bh25-notes]'))return;
  const button=document.createElement('button');button.type='button';button.className='btn bh25-notes-button';button.dataset.bh25Notes=root.id;
- button.textContent='📝 Notizen'+(root.notes?.trim()?' ✓':'');button.title='Notizen für '+root.name;bar.append(button);
+ button.textContent='📦 Lager'+(root.notes?.trim()?' ✓':'');button.title='Lager für '+root.name;bar.append(button);
 }
 document.addEventListener('click',e=>{const b=e.target.closest?.('[data-bh25-notes]');if(!b)return;
  e.preventDefault();e.stopImmediatePropagation();const root=get(b.dataset.bh25Notes);if(!root)return;
- notesRoot=root.id;dlg.querySelector('#bh25NotesHeading').textContent='📝 '+root.name+' · Notizen';dlg.querySelector('#bh25NotesBody').value=root.notes||'';dlg.showModal();},true);
+ notesRoot=root.id;dlg.querySelector('#bh25NotesHeading').textContent='📝 '+root.name+' · Lager';dlg.querySelector('#bh25NotesBody').value=root.notes||'';dlg.showModal();},true);
 // Gift and songs quick links must now navigate to their actual visible owner.
 window.addEventListener('click',e=>{
  const b=e.target.closest?.('[data-action]');if(!b)return;
@@ -1803,7 +1803,7 @@ foundationDialog.innerHTML=`<form class="modal" id="bh26AppointmentForm"><h2 id=
 <div class="field"><label for="bh26AppointmentDate">Datum</label><input type="date" id="bh26AppointmentDate" required></div>
 <div class="field"><label for="bh26AppointmentTime">Uhrzeit (optional)</label><input type="time" id="bh26AppointmentTime"></div>
 <div class="field"><label for="bh26AppointmentParent">Zuordnung</label><select id="bh26AppointmentParent"></select></div>
-<div class="field"><label for="bh26AppointmentNotes">Notizen (optional)</label><textarea id="bh26AppointmentNotes" rows="3"></textarea></div>
+<div class="field"><label for="bh26AppointmentNotes">Lager (optional)</label><textarea id="bh26AppointmentNotes" rows="3"></textarea></div>
 <footer><button type="button" class="btn" data-bh26-appointment-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
 document.body.append(foundationDialog);
 let editingAppointment=null;
@@ -1861,7 +1861,7 @@ function foundationPanel(){
  const projects=foundationFolder('Projekte'),appointments=data.nodes.filter(n=>n.appointment && n.due && rootOf(n)?.id===root.id && !n.archived)
  .sort((a,b)=>(a.due+'T'+(a.appointmentTime||'00:00')).localeCompare(b.due+'T'+(b.appointmentTime||'00:00')));
  return `<section class="bh27-foundation-panel" aria-label="Studienstiftung Notizen und Projekte">
-  <section class="bh27-foundation-notes"><h3>📝 Notizen</h3><textarea id="bh27FoundationNotes" rows="5" placeholder="Deine Gedanken zur Studienstiftung …">${esc(root.notes||'')}</textarea><button class="btn" type="button" data-bh27-save-notes>Notizen speichern</button></section>
+  <section class="bh27-foundation-notes"><h3>📦 Lager</h3><textarea id="bh27FoundationNotes" rows="5" placeholder="Deine Gedanken zur Studienstiftung …">${esc(root.notes||'')}</textarea><button class="btn" type="button" data-bh27-save-notes>Lager speichern</button></section>
   <section class="bh27-foundation-projects"><div class="bh27-foundation-heading"><h3>▣ Projekte</h3><button class="btn" type="button" data-bh27-add-project="${esc(projects?.id||'')}">＋ Projekt</button></div>
    ${projects?foundationPanelRows(projects.id):''}${projects&&!kids(projects.id).length?'<p class="muted">Hier kannst du eigene Projekte anlegen.</p>':''}</section>
   <section class="bh27-foundation-appointments"><div class="bh27-foundation-heading"><h3>📅 Termine</h3><button class="btn" type="button" data-bh27-add-appointment>＋ Termin</button></div>
@@ -1880,7 +1880,7 @@ function addFoundationUI(){
 // notes, cloud history and backup representation. Only their VIEW changes.
 const foundationProjectDialog=document.createElement('dialog');
 foundationProjectDialog.className='bh27-project-dialog';
-foundationProjectDialog.innerHTML=`<form class="modal" id="bh27ProjectForm"><h2 id="bh27ProjectHeading">Projekt anlegen</h2><label class="field">Projektname<input id="bh27ProjectName" maxlength="250" required></label><label class="field">Unterprojekt von<select id="bh27ProjectParent"></select></label><label class="field">Notizen<textarea id="bh27ProjectNotes" rows="4"></textarea></label><footer><button type="button" class="btn" data-bh27-project-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
+foundationProjectDialog.innerHTML=`<form class="modal" id="bh27ProjectForm"><h2 id="bh27ProjectHeading">Projekt anlegen</h2><label class="field">Projektname<input id="bh27ProjectName" maxlength="250" required></label><label class="field">Unterprojekt von<select id="bh27ProjectParent"></select></label><label class="field">Lager<textarea id="bh27ProjectNotes" rows="4"></textarea></label><footer><button type="button" class="btn" data-bh27-project-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
 document.body.append(foundationProjectDialog);
 let editingFoundationProject=null;
 function openFoundationProject(id=null,parentId=null){
@@ -2022,7 +2022,7 @@ voucherDialog.innerHTML=`<form class="modal" id="bh27VoucherForm"><h2>🎟️ Gu
 <label class="field">Wert in Euro (optional)<input id="bh27VoucherValue" type="number" min="0" step="0.01"></label>
 <label class="field">Gültig bis (optional)<input id="bh27VoucherExpires" type="date"></label>
 <label class="field">Code (optional)<input id="bh27VoucherCode" maxlength="300"></label>
-<label class="field">Notizen<textarea id="bh27VoucherNotes" rows="3"></textarea></label>
+<label class="field">Lager<textarea id="bh27VoucherNotes" rows="3"></textarea></label>
 <footer><button type="button" class="btn" data-bh27-voucher-cancel>Abbrechen</button><button type="submit" class="btn primary">Speichern</button></footer></form>`;
 document.body.append(voucherDialog);
 let editingVoucher=null;
@@ -2589,7 +2589,7 @@ const safe=x=>esc(x??'');
 const types=()=>Array.isArray(data.trainingTypes)?data.trainingTypes:(data.trainingTypes=[]);
 const logs=()=>Array.isArray(data.trainingLog)?data.trainingLog:(data.trainingLog=[]);
 const meals=()=>Array.isArray(data.mealSchedule)?data.mealSchedule:(data.mealSchedule=[]);
-const isSportRoot=n=>!!n&&n.parent===null&&/^sport\s*(?:und|&|\+)\s*essen$/i.test(String(n.name||'').trim());
+const isSportRoot=n=>!!n&&n.parent===null&&(n.lifeArea===true||/^(?:sport\s*(?:und|&|\+)\s*essen|lebenshaltung)$/i.test(String(n.name||'').trim()));
 const sportRoot=()=>data.nodes.find(isSportRoot);
 const isSportView=()=>data.tab==='tree'&&!!get(data.active)&&isSportRoot(get(data.active));
 const dateKey=(d=new Date())=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
@@ -2646,27 +2646,29 @@ function statistics(records){
  const weighted=all.filter(s=>s.weight!==null&&Number.isFinite(s.weight)&&s.weight>=0);
  return {count:records.length,days:days.size,sets:all.length,average:weighted.length?weighted.reduce((a,s)=>a+s.weight,0)/weighted.length:null,max:weighted.length?Math.max(...weighted.map(s=>s.weight)):null};
 }
+const isAssistedPullup=name=>/(?:klimmz[üu]g|klimmzüge|pull\s*-?ups?)/i.test(String(name||'').trim());
 function metric(label,value){return `<div class="bh34-metric"><small>${safe(label)}</small><strong>${safe(value)}</strong></div>`}
 function kgMetric(v){return v===null?'—':weightText(v)+' kg'}
 function statTab(label,mode){return `<button type="button" data-bh36-view="${mode}" aria-pressed="${statView===mode}" class="bh36-switch ${statView===mode?'is-selected':''}">${label}</button>`}
 function statTable(headings,rows,foot=''){
  return `<div class="bh36-table-scroll" tabindex="0" aria-label="Statistik-Tabelle horizontal scrollbar"><table class="bh36-table"><thead><tr>${headings.map(x=>`<th scope="col">${safe(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table></div>`;
 }
+function bestAssistance(records){const values=records.flatMap(details).map(s=>s.weight).filter(w=>w!==null&&Number.isFinite(w));return values.length?Math.min(...values):null}
 function statOverview(){
  const names=typeNames(),all=logs(),rows=names.map(name=>{const d=all.filter(e=>e.exercise===name),m=statistics(d);
-  return `<tr><th scope="row"><button type="button" class="bh36-device-link" data-bh36-open-exercise="${safe(name)}">${safe(name)}</button></th><td>${m.count}</td><td>${m.days}</td><td>${kgMetric(m.average)}</td><td>${kgMetric(m.max)}</td></tr>`;
+  return `<tr><th scope="row"><button type="button" class="bh36-device-link" data-bh36-open-exercise="${safe(name)}">${safe(name)}</button></th><td>${m.count}</td><td>${m.days}</td><td>${kgMetric(m.average)}</td><td>${kgMetric(isAssistedPullup(name)?bestAssistance(d):m.max)}</td></tr>`;
  });
  const m=statistics(all);
  const foot=`<tr><th scope="row">Gesamt</th><td>${m.count}</td><td>${m.days}</td><td>${kgMetric(m.average)}</td><td>${kgMetric(m.max)}</td></tr>`;
- return all.length?statTable(['Gerät / Trainingsart','Einträge','Tage','Ø Gewicht','Max. Gewicht'],rows.join(''),foot):'<div class="bh35-chart-empty">Deine Trainingseinträge erscheinen hier nach dem ersten Training.</div>';
+ return all.length?statTable(['Gerät / Trainingsart','Einträge','Tage','Ø kg','Max./Min. kg'],rows.join(''),foot):'<div class="bh35-chart-empty">Deine Trainingseinträge erscheinen hier nach dem ersten Training.</div>';
 }
 function statDevice(){
  const name=chooseExercise();if(name==='all')return '<div class="bh35-chart-empty">Lege zuerst eine Trainingsart an.</div>';
  const sessions=shownLogs().slice().sort((a,b)=>(b.at||b.date||'').localeCompare(a.at||a.date||'')),m=statistics(sessions);
  const selection=`<label class="bh36-device-select">Trainingsart <select id="bh36ExerciseSelect">${typeNames().map(n=>`<option value="${safe(n)}" ${n===name?'selected':''}>${safe(n)}</option>`).join('')}</select></label>`;
- const summary=`<div class="bh36-summary">${metric('Einträge',m.count)}${metric('Sätze',m.sets)}${metric('Ø Gewicht',kgMetric(m.average))}${metric('Maximum',kgMetric(m.max))}</div>`;
- const rows=sessions.map(e=>{const sets=details(e),local=statistics([e]);return `<tr><th scope="row">${safe(formatDate(e.date))}</th><td>${sets.length}</td><td class="bh36-reps">${safe(sets.map(s=>s.reps).join(' / '))}</td><td>${kgMetric(local.average)}</td><td>${kgMetric(local.max)}</td></tr>`}).join('');
- return `${selection}${summary}${sessions.length?statTable(['Datum','Sätze','Wdh. pro Satz','Ø Gewicht','Max. Gewicht'],rows):'<div class="bh35-chart-empty">Noch keine Einträge für diese Trainingsart.</div>'}`;
+ const summary=`<div class="bh36-summary">${metric('Einträge',m.count)}${metric('Sätze',m.sets)}${metric('Ø Gewicht',kgMetric(m.average))}${metric(isAssistedPullup(name)?'Min. Unterstützung':'Maximum',kgMetric(isAssistedPullup(name)?bestAssistance(sessions):m.max))}</div>`;
+ const rows=sessions.map(e=>{const sets=details(e),local=statistics([e]);return `<tr><th scope="row">${safe(formatDate(e.date))}</th><td>${sets.length}</td><td class="bh36-reps">${safe(sets.map(s=>s.reps).join(' / '))}</td><td>${kgMetric(local.average)}</td><td>${kgMetric(isAssistedPullup(name)?bestAssistance([e]):local.max)}</td></tr>`}).join('');
+ return `${selection}${summary}${sessions.length?statTable(['Datum','Sätze','Wdh. pro Satz','Ø kg',isAssistedPullup(name)?'Min. kg':'Max. kg'],rows):'<div class="bh35-chart-empty">Noch keine Einträge für diese Trainingsart.</div>'}`;
 }
 function statTrend(){
  const name=chooseExercise();if(name==='all')return '<div class="bh35-chart-empty">Lege zuerst eine Trainingsart an.</div>';
@@ -2675,13 +2677,13 @@ function statTrend(){
  const weighted=[...series.values()].some(arr=>arr.some(s=>s.weight!==null&&Number.isFinite(s.weight)));
  const rows=[...series.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([day,sets])=>{
   const valid=sets.filter(s=>s.weight!==null&&Number.isFinite(s.weight)),nums=weighted?valid.map(s=>s.weight):sets.map(s=>s.reps);
-  return {day,sets:sets.length,average:nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null,max:nums.length?Math.max(...nums):null};
+  return {day,sets:sets.length,average:nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null,max:nums.length?(weighted&&isAssistedPullup(name)?Math.min(...nums):Math.max(...nums)):null};
  });
  if(!rows.length)return selection+'<div class="bh35-chart-empty">Noch keine Trainingstage für diese Trainingsart.</div>';
- const graphic=rows.slice(-10),highest=Math.max(1,...graphic.map(r=>r.max||0)),unit=weighted?'kg':'Wdh.';
- const columns=`<div class="bh36-columns" role="img" aria-label="${weighted?'Maximales Gewicht':'Maximale Wiederholungen'} nach Trainingstag">${graphic.map(r=>`<div class="bh36-col"><span class="bh36-col-number">${r.max===null?'—':safe(weightText(r.max))}</span><div class="bh36-col-plot"><div class="bh36-col-bar" style="height:${r.max===null?0:Math.max(3,Math.round(100*r.max/highest))}%"></div></div><span class="bh36-col-date">${safe(new Date(r.day+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}))}</span></div>`).join('')}</div>`;
- const table=statTable(['Datum','Sätze',weighted?'Ø kg':'Ø Wdh.',weighted?'Max. kg':'Max. Wdh.'],rows.slice().reverse().map(r=>`<tr><th scope="row">${safe(formatDate(r.day))}</th><td>${r.sets}</td><td>${r.average===null?'—':weightText(r.average)}</td><td>${r.max===null?'—':weightText(r.max)}</td></tr>`).join(''));
- return `${selection}<div class="bh36-trend-unit">${weighted?'Gewichtsentwicklung':'Wiederholungsentwicklung'} · ${unit}</div>${columns}${table}`;
+ const graphic=rows.slice(-10),highest=Math.max(1,...graphic.map(r=>r.max||0)),unit=weighted?'kg':'Wdh.',reverse=weighted&&isAssistedPullup(name);
+ const columns=`<div class="bh36-columns" role="img" aria-label="${weighted?(reverse?'Minimale Unterstützung':'Maximales Gewicht'):'Maximale Wiederholungen'} nach Trainingstag">${graphic.map(r=>`<div class="bh36-col"><span class="bh36-col-number">${r.max===null?'—':safe(weightText(r.max))}</span><div class="bh36-col-plot"><div class="bh36-col-bar" style="height:${r.max===null?0:Math.max(3,Math.round(100*(reverse?((highest-r.max+1)/(highest+1)):r.max/highest)))}%"></div></div><span class="bh36-col-date">${safe(new Date(r.day+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}))}</span></div>`).join('')}</div>`;
+ const table=statTable(['Datum','Sätze',weighted?'Ø kg':'Ø Wdh.',weighted?(reverse?'Min. kg':'Max. kg'):'Max. Wdh.'],rows.slice().reverse().map(r=>`<tr><th scope="row">${safe(formatDate(r.day))}</th><td>${r.sets}</td><td>${r.average===null?'—':weightText(r.average)}</td><td>${r.max===null?'—':weightText(r.max)}</td></tr>`).join(''));
+ return `${selection}<div class="bh36-trend-unit">${reverse?'Unterstützung (weniger ist besser)':weighted?'Gewichtsentwicklung':'Wiederholungsentwicklung'} · ${unit}</div>${columns}${table}`;
 }
 function statPanel(){
  const content=statView==='device'?statDevice():statView==='trend'?statTrend():statOverview();
@@ -2736,11 +2738,12 @@ function foodUI(){const recipes=discoverRecipes();ensureTodayMeal(recipes);const
  return `<section class="bh34-body" id="bh34Meals"><div class="bh34-section-title"><h3>Essen</h3><span class="bh34-muted">${recipes.length} Rezepte</span></div>${!recipes.length?`<div class="bh34-empty"><strong>Ich finde unter Privat noch kein 🍙 Rezeptbuch mit Rezepten.</strong><p>Die Rezeptnamen müssen als Einträge in der Kategorie stehen.</p><button type="button" class="btn" data-bh35-open-private>Privat öffnen</button></div>`:`<div class="bh34-today"><small>Heute · ${safe(formatDate(day))}</small><strong>${safe(selected?.name||today?.recipeName||'Noch kein Rezept ausgewählt')}</strong>${today&&!selected?'<small>Dieses Rezept ist in Privat nicht mehr auffindbar.</small>':''}<div class="bh34-today-actions"><button type="button" class="btn primary" data-bh35-reroll>🎲 Neu würfeln</button>${selected?`<button type="button" class="btn" data-bh35-view-recipe="${safe(selected.id)}">Rezept öffnen</button>`:''}</div></div>
   <div class="bh34-section-title"><h4>Deine nächsten 7 Tage</h4><button type="button" class="btn bh34-mini-btn" data-bh35-week>🎲 7 Tage würfeln</button></div><div class="bh34-week">${seven.map(date=>{const e=meals().find(m=>m.date===date),r=recipeFrom(e,recipes);return `<div class="bh34-week-row ${date===day?'is-today':''}"><small>${safe(formatDate(date))}</small><span>${safe(r?.name||e?.recipeName||'—')}</span>${e?`<button type="button" class="bh34-reroll-one" data-bh35-reroll-date="${safe(date)}" title="Diesen Tag neu würfeln">⟳</button>`:''}</div>`}).join('')}</div>`}</section>`;
 }
-function hubUI(){return `<section id="bh35Hub" class="bh34-hub" aria-label="Sport und Essen"><div class="bh34-tabs" role="tablist" aria-label="Sport oder Essen"><button type="button" role="tab" aria-selected="${currentSection==='sport'}" class="${currentSection==='sport'?'is-active':''}" data-bh35-tab="sport">🏋️ Sport</button><button type="button" role="tab" aria-selected="${currentSection==='food'}" class="${currentSection==='food'?'is-active':''}" data-bh35-tab="food">🥗 Essen</button></div>${currentSection==='sport'?workoutUI():foodUI()}</section>`}
+function hubUI(){return `<section id="bh35Hub" class="bh34-hub" aria-label="Lebenshaltung"><div class="bh34-tabs" role="tablist" aria-label="Sport oder Essen"><button type="button" role="tab" aria-selected="${currentSection==='sport'}" class="${currentSection==='sport'?'is-active':''}" data-bh35-tab="sport">🏋️ Sport</button><button type="button" role="tab" aria-selected="${currentSection==='food'}" class="${currentSection==='food'?'is-active':''}" data-bh35-tab="food">🥗 Essen</button></div>${currentSection==='sport'?workoutUI():foodUI()}</section>`}
 function applyAreaColors(){for(const n of data.nodes.filter(n=>n.parent===null&&n.color)){
  const color=colorValue(n.color),surface=`color-mix(in srgb, ${color} 80%, white)`,edge=`color-mix(in srgb, ${color} 75%, #a7b9a9)`;
  for(const card of host.querySelectorAll('.project[data-id]'))if(card.dataset.id===n.id){card.style.background=surface;card.style.borderColor=edge}
- for(const row of host.querySelectorAll('[data-area]'))if(row.dataset.area===n.name){if(row.matches('.task')&&['sofort','wichtig'].includes(row.dataset.priority))continue;const item=row.matches('.outline-item')?row.querySelector(':scope > .outline-row'):row;if(item){item.style.background=surface;item.style.borderColor=edge}}
+ for(const row of host.querySelectorAll('[data-area]'))if(row.dataset.area===n.name && row.dataset.kind==='category'){const item=row.matches('.outline-item')?row.querySelector(':scope > .outline-row'):row;if(item){item.style.background=surface;item.style.borderColor=edge}}
+ for(const node of host.querySelectorAll('.bh30-category-node[data-area]'))if(node.dataset.area===n.name){node.style.background=surface;node.style.borderColor=edge}
 }}
 const oldRender=render;
 render=function(...args){oldRender(...args);applyAreaColors();
@@ -2894,4 +2897,245 @@ const style=document.createElement('style');style.textContent=`
 @media(max-width:380px){.bh35-set-row{grid-template-columns:18px minmax(62px,1fr) minmax(90px,1.1fr)}.bh35-set-row input{padding:8px 6px}.bh34-week-row{grid-template-columns:75px minmax(0,1fr) 23px}}
 `;document.head.append(style);
 render();
+})();
+/* BrainHome 3.7 — gentle living area, dated tasks, periodic reviews and safer projects.
+   No existing node IDs, routine records, task events or cloud settings are rewritten. */
+(() => {
+'use strict';
+const host=document.getElementById('app');
+const escapeText=value=>esc(value??'');
+const isoDay=(date=new Date())=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+const parseDay=value=>new Date(String(value).slice(0,10)+'T12:00:00');
+const endOfWeek=date=>{const d=new Date(date);d.setHours(12,0,0,0);d.setDate(d.getDate()+((7-d.getDay())%7));return d};
+const findLife=()=>data.nodes.find(n=>n.parent===null&&(n.lifeArea===true||/^(?:sport\s*(?:und|&|\+)\s*essen|lebenshaltung)$/i.test(String(n.name||'').trim())));
+// The old editable project remains exactly the same record, with all children attached.
+function ensureLifeName(){const area=findLife();if(area&&(!area.lifeArea||area.name!=='Lebenshaltung')){area.lifeArea=true;area.name='Lebenshaltung';save()}return area}
+function areaIsLife(area){return !!area&&(area.lifeArea===true||/^(?:sport\s*(?:und|&|\+)\s*essen|lebenshaltung)$/i.test(String(area.name||'').trim()))}
+function taskCounts(){
+ const skip=x=>!x||!isTask(x)||x.done||String(x.priority??'').trim()==='';
+ const counts=new Map();for(const root of data.nodes.filter(n=>n.parent===null)){
+  if(areaIsLife(root)){counts.set(root.id,null);continue}
+  counts.set(root.id,descendants(root.id).map(get).filter(n=>!skip(n)).length);
+ }return counts;
+}
+function refreshHomeCounts(){
+ if(data.tab!=='projects'&&data.tab!=='home')return;
+ const totals=taskCounts();
+ for(const card of host.querySelectorAll('.project[data-id]')){
+  const small=card.querySelector('small');if(!small)continue;
+  const amount=totals.get(card.dataset.id);
+  small.textContent=amount===null?'Sport · Essen · Rituale':amount+' offene Aufgaben';
+ }
+}
+// Preserve the existing routines records, grouping and completion history. Move only the panel.
+function relocateRituals(){
+ const life=findLife();if(!life||data.tab!=='tree')return;
+ const root=get(data.active);if(!root)return;
+ if(root.privateArea||root.name==='Privat'){
+  host.querySelector('.private-panel[data-panel="routines"]')?.remove();
+ }
+ if(root.id!==life.id)return;
+ const old=host.querySelector('#bh37Rituals');old?.remove();
+ const area=document.createElement('div');area.id='bh37Rituals';area.className='specials bh37-rituals';
+ area.innerHTML=foldPanel('routines','🌿 Rituale',routinesHTML());
+ host.append(area);
+ // Match the previous compact private styling and keep old expanded state.
+ const panel=area.querySelector('[data-panel="routines"]');
+ if(panel){panel.classList.add('bh37-ritual-panel');
+  for(const row of panel.querySelectorAll('.routine-record')){
+   const id=row.querySelector('[data-action="routine-edit"]')?.dataset.id;
+   if(id){row.dataset.bh14DragRoutine=id;row.classList.add('bh14-routine-draggable')}
+  }
+  for(const group of panel.querySelectorAll('.routine-subgroup')){
+    const groupId=group.querySelector(':scope > summary [data-action="routine-group-rename"]')?.dataset.id;
+    if(groupId){const summary=group.querySelector(':scope > summary'),body=group.querySelector(':scope > .routine-subgroup-body');if(summary)summary.dataset.bh14DropGroup=groupId;if(body)body.dataset.bh14DropGroup=groupId;}
+  }
+ }
+}
+function renameNotesUI(){
+ // Visible headings/buttons only. Never replace user-authored text or stored notes.
+ const selectors=['[data-bh25-notes]','#bh27FoundationNotes ~ button','.bh27-foundation-notes h3','.bh25-notes-dialog h2','.bh25-notes-dialog button','label[for="notes"]'];
+ for(const node of document.querySelectorAll(selectors.join(','))){
+  if(node.matches('textarea,input'))continue;
+  node.childNodes.forEach(child=>{if(child.nodeType===Node.TEXT_NODE)child.textContent=child.textContent.replace(/Notizen/g,'Lager').replace(/Bereichsnotizen/g,'Lager')});
+ }
+ for(const field of document.querySelectorAll('[data-bh25-notes]'))field.title=(field.title||'').replace(/Notizen/g,'Lager');
+}
+function prepareFoundationDeletion(){
+ if(data.tab!=='tree')return;
+ for(const edit of host.querySelectorAll('.bh27-project-row [data-bh27-project-edit]')){
+  if(edit.parentNode.querySelector('[data-bh37-delete-project]'))continue;
+  const button=document.createElement('button');button.type='button';button.className='mini bh37-remove-project';button.dataset.bh37DeleteProject=edit.dataset.bh27ProjectEdit;
+  button.textContent='×';button.title='Projekt oder Untergruppe entfernen';button.setAttribute('aria-label','Projekt entfernen');
+  edit.after(button);
+ }
+}
+// Calendar is rendered from tasks, without copying/modifying their due dates.
+const nav=document.querySelector('nav.tabs');
+if(nav&&!nav.querySelector('[data-tab="calendar"]')){
+ const button=document.createElement('button');button.type='button';button.dataset.tab='calendar';button.textContent='Kalender';
+ const done=nav.querySelector('[data-tab="history"]');if(done)done.after(button);else nav.append(button);
+ button.addEventListener('click',()=>{setTab('calendar');rememberMonth()});
+}
+let calendarMonth;try{const stored=localStorage.getItem('brainhome-v37-calendar-month');calendarMonth=/^\d{4}-\d{2}$/.test(stored||'')?stored:isoDay().slice(0,7)}catch{calendarMonth=isoDay().slice(0,7)}
+let chosenDay=isoDay();
+function rememberMonth(){try{localStorage.setItem('brainhome-v37-calendar-month',calendarMonth)}catch{}}
+function datedEntries(){return data.nodes.filter(n=>typeof n?.due==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(n.due)&& (isTask(n)||n.kind==='task'||n.appointment||n.kind==='list'&&!n.checkable)).map(n=>({id:n.id,due:n.due,name:n.name,appointment:!!n.appointment,done:!!n.done,area:rootOf(n)?.name||'Inbox',time:n.appointmentTime||''}));}
+const deDate=d=>parseDay(d).toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+function calendarHtml(){
+ const [year,month]=calendarMonth.split('-').map(Number),first=new Date(year,month-1,1,12),length=new Date(year,month,0).getDate();
+ const pad=(first.getDay()+6)%7,entries=datedEntries(),byDay=new Map();
+ for(const e of entries){const records=byDay.get(e.due)||[];records.push(e);byDay.set(e.due,records)}
+ const squares=Array.from({length:Math.ceil((pad+length)/7)*7},(_,i)=>{
+  const d=i-pad+1;if(d<1||d>length)return '<span class="bh37-empty-day"></span>';
+  const date=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const rows=byDay.get(date)||[];
+  return `<button type="button" class="bh37-day ${date===isoDay()?'today':''} ${date===chosenDay?'selected':''}" data-bh37-day="${date}" aria-label="${d}. ${month}. ${year}: ${rows.length} Einträge"><strong>${d}</strong>${rows.length?`<span class="bh37-dot-count">${rows.length}</span>`:''}</button>`;
+ }).join('');
+ const todayItems=(byDay.get(chosenDay)||[]).sort((a,b)=>a.time.localeCompare(b.time));
+ const monthAll=entries.filter(e=>e.due.startsWith(calendarMonth));
+ return `<section class="bh37-calendar" aria-label="Aufgabenkalender"><div class="bh37-calendar-head"><h2>Kalender</h2><button type="button" class="btn bh37-export" data-bh37-ics>⇩ Für Google Kalender (.ics)</button></div>
+ <div class="bh37-month-nav"><button type="button" data-bh37-month="-1" aria-label="Vorheriger Monat">‹</button><strong>${escapeText(first.toLocaleDateString('de-DE',{month:'long',year:'numeric'}))}</strong><button type="button" data-bh37-month="1" aria-label="Nächster Monat">›</button></div>
+ <div class="bh37-calendar-week">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(x=>`<span>${x}</span>`).join('')}</div><div class="bh37-calendar-days">${squares}</div>
+ <div class="bh37-appointments"><h3>${escapeText(deDate(chosenDay))}</h3>${todayItems.length?todayItems.map(e=>`<button type="button" class="bh37-event ${e.done?'is-done':''}" data-bh37-open-node="${escapeText(e.id)}"><span>${e.appointment?'📌':'□'}</span><strong>${escapeText(e.name)}</strong><small>${escapeText(e.time?e.time+' · '+e.area:e.area)}</small></button>`).join(''):'<p class="muted">Für diesen Tag ist nichts eingetragen.</p>'}</div>
+ <div class="bh37-month-list"><h3>Im ganzen Monat · ${monthAll.length}</h3>${monthAll.slice().sort((a,b)=>a.due.localeCompare(b.due)||a.time.localeCompare(b.time)).map(e=>`<button type="button" class="bh37-event" data-bh37-open-node="${escapeText(e.id)}"><time>${escapeText(e.due.slice(8)+'.'+e.due.slice(5,7)+'.')}</time><strong>${escapeText(e.name)}</strong><small>${escapeText(e.area)}</small></button>`).join('')||'<p class="muted">Keine Aufgaben mit Fälligkeitsdatum.</p>'}</div>
+ <p class="bh37-calendar-help">Fällige Aufgaben werden automatisch angezeigt. Der .ics-Export ist eine einmalige Übertragung, keine automatische Synchronisierung.</p></section>`;
+}
+function icsEscape(s){return String(s??'').replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/[,;]/g,c=>'\\'+c)}
+function exportIcs(){
+ const entries=datedEntries();if(!entries.length){notice('Noch keine Termine oder Aufgaben mit Datum');return}
+ const events=entries.map(e=>{
+  const start=e.due.replace(/-/g,''),endDate=parseDay(e.due);endDate.setDate(endDate.getDate()+1);const end=isoDay(endDate).replace(/-/g,'');
+  const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+  const time=/^([01]\d|2[0-3]):[0-5]\d$/.test(e.time)?e.time.replace(':','')+'00':null;
+  const dtStart=time?`DTSTART;TZID=Europe/Berlin:${start}T${time}`:`DTSTART;VALUE=DATE:${start}`;
+  const dtEnd=time?`DTEND;TZID=Europe/Berlin:${start}T${String(Math.min(23,Number(e.time.slice(0,2))+1)).padStart(2,'0')}${e.time.slice(3,5)}00`:`DTEND;VALUE=DATE:${end}`;
+  return `BEGIN:VEVENT\r\nUID:${icsEscape(e.id)}@brainhome.local\r\nDTSTAMP:${stamp}\r\n${dtStart}\r\n${dtEnd}\r\nSUMMARY:${icsEscape(e.name)}\r\nDESCRIPTION:${icsEscape(e.area+(e.done?' · Erledigt':''))}\r\nEND:VEVENT`;
+ });
+ const content='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//BrainHome//Aufgabenkalender 3.7//DE\r\nCALSCALE:GREGORIAN\r\n'+events.join('\r\n')+'\r\nEND:VCALENDAR\r\n';
+ const url=URL.createObjectURL(new Blob([content],{type:'text/calendar;charset=utf-8'}));
+ const link=document.createElement('a');link.href=url;link.download='BrainHome-Kalender-'+isoDay()+'.ics';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+}
+// Safe optional period review: local notification on next opening, not an impossible background push.
+const REVIEW_KEY='brainhome-v37-reviewed-periods';
+function reviewCandidates(date=new Date()){
+ const now=new Date(date),today=new Date(date);today.setHours(12,0,0,0);
+ const weekEnd=endOfWeek(today);
+ if(now.getDay()!==0||now.getHours()<18)weekEnd.setDate(weekEnd.getDate()-7);
+ const weekStart=new Date(weekEnd);weekStart.setDate(weekStart.getDate()-6);
+ const currentMonthEnd=new Date(now.getFullYear(),now.getMonth()+1,0,12);
+ const monthEnd=(now.getDate()===currentMonthEnd.getDate()&&now.getHours()>=18)?currentMonthEnd:new Date(now.getFullYear(),now.getMonth(),0,12);
+ const monthStart=new Date(monthEnd.getFullYear(),monthEnd.getMonth(),1,12);
+ const year=(now.getMonth()===11&&now.getDate()===31&&now.getHours()>=18)?now.getFullYear():now.getFullYear()-1;
+ return [
+  {kind:'week',start:isoDay(weekStart),end:isoDay(weekEnd),title:'Wochenrückblick'},
+  {kind:'month',start:isoDay(monthStart),end:isoDay(monthEnd),title:'Monatsrückblick'},
+  {kind:'year',start:year+'-01-01',end:year+'-12-31',title:'Jahresrückblick'}
+ ];
+}
+function eventsFor(period){
+ const within=at=>{if(!at)return false;const date=String(at).slice(0,10);return date>=period.start&&date<=period.end};
+ const created=(data.taskEvents||[]).filter(e=>e.type==='created'&&within(e.at));
+ const done=(data.taskEvents||[]).filter(e=>e.type==='completed'&&within(e.at));
+ const extra=(data.completionLog||[]).filter(e=>within(e.at)&&['routine','gift','prep'].includes(e.kind));
+ const groups=new Map();
+ for(const e of [...done,...extra]){
+  const node=get(e.parentId||e.taskId||e.sourceId),area=node?rootOf(node)?.name||'Inbox':e.kind==='routine'?'Lebenshaltung':'Andere / Archiv';
+  if(!groups.has(area))groups.set(area,[]);
+  groups.get(area).push(e.name||node?.name||'Aufgabe');
+ }
+ return {created,done,extra,groups,count:done.length+extra.length};
+}
+const reviewDialog=document.createElement('dialog');reviewDialog.className='bh37-review-dialog';reviewDialog.id='bh37ReviewDialog';document.body.append(reviewDialog);
+let pendingReviews=[];
+function reviewShow(period){
+ const e=eventsFor(period);const ratio=e.created.length?`${Math.round(e.count/e.created.length*100)} %`:(e.count?`${e.count} : 0`:'—');
+ const groups=[...e.groups].sort((a,b)=>b[1].length-a[1].length).map(([label,names])=>`<section class="bh37-review-group"><h3>${escapeText(label)} <span>${names.length}</span></h3>${names.map(name=>`<div>✓ ${escapeText(name)}</div>`).join('')}</section>`).join('');
+ const pieces=Array.from({length:42},(_,i)=>`<i style="--x:${(i*37)%100}%;--delay:${((i*13)%19)/10}s;--duration:${3+(i%7)/6}s;--rotate:${(i*41)%360}deg;--hue:${(i*89)%360}"></i>`).join('');
+ reviewDialog.innerHTML=`<div class="bh37-confetti" aria-hidden="true">${pieces}</div><div class="bh37-review-content"><div class="bh37-review-top"><span>✨ ${period.title}</span><button type="button" class="mini" data-bh37-close-review>✕</button></div><small>${escapeText(period.start)} – ${escapeText(period.end)}</small><div class="bh37-review-metrics"><div><strong>${e.count}</strong><span>erledigt</span></div><div><strong>${e.created.length}</strong><span>hinzugefügt</span></div><div><strong>${ratio}</strong><span>Abschluss / Eingang</span></div></div>${groups||'<p>In diesem Zeitraum gab es noch keine erfassten Abschlüsse.</p>'}<button type="button" class="btn primary" data-bh37-close-review>Schließen</button></div>`;
+ if(!reviewDialog.open)reviewDialog.showModal();
+ try{const seen=JSON.parse(localStorage.getItem(REVIEW_KEY)||'{}');seen[period.kind+':'+period.end]=true;localStorage.setItem(REVIEW_KEY,JSON.stringify(seen))}catch{}
+}
+function scanReviews(){if(reviewDialog.open)return;let seen={};try{seen=JSON.parse(localStorage.getItem(REVIEW_KEY)||'{}')}catch{}
+ const next=reviewCandidates().filter(p=>!seen[p.kind+':'+p.end]&&((eventsFor(p).count||eventsFor(p).created.length)>0));
+ if(next.length){pendingReviews=next.slice(1);reviewShow(next[0])}
+}
+reviewDialog.addEventListener('close',()=>{if(pendingReviews.length)setTimeout(()=>reviewShow(pendingReviews.shift()),100)});
+// Apply the visible-only customisations after the existing v3.6 rendering pipeline.
+const previousRender=render;
+render=function(...args){
+ ensureLifeName();
+ if(data.tab==='calendar'){
+  document.querySelectorAll('[data-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.tab==='calendar'));
+  host.innerHTML=calendarHtml();
+  try{localStorage.setItem('brainhome-v25-last-route',JSON.stringify({tab:'calendar',active:null}))}catch{}
+  return;
+ }
+ const result=previousRender(...args);
+ refreshHomeCounts();relocateRituals();renameNotesUI();prepareFoundationDeletion();
+ if(data.tab==='tree'&&areaIsLife(get(data.active))){
+  // Leisure maintenance gets no task dashboard, only sport / food / rituals.
+  for(const elem of host.querySelectorAll('p.muted, .bh13-stat-head, .bh13-count'))if(/offene Aufgaben|Aufgabenzahl/i.test(elem.textContent))elem.remove();
+ }
+ return result;
+};
+// Navigation actions: events are delegated, so the page survives normal rerenders.
+document.addEventListener('click',event=>{
+ const month=event.target.closest('[data-bh37-month]'),day=event.target.closest('[data-bh37-day]'),go=event.target.closest('[data-bh37-open-node]'),exporter=event.target.closest('[data-bh37-ics]'),del=event.target.closest('[data-bh37-delete-project]'),close=event.target.closest('[data-bh37-close-review]');
+ if(!month&&!day&&!go&&!exporter&&!del&&!close)return;
+ event.preventDefault();event.stopImmediatePropagation();
+ if(month){const [y,m]=calendarMonth.split('-').map(Number),d=new Date(y,m-1+Number(month.dataset.bh37Month),1);calendarMonth=isoDay(d).slice(0,7);chosenDay=calendarMonth+'-01';rememberMonth();render();}
+ if(day){chosenDay=day.dataset.bh37Day;render()}
+ if(go){const n=get(go.dataset.bh37OpenNode);if(n)openEditor(n.id)}
+ if(exporter)exportIcs();
+ if(del){const n=get(del.dataset.bh37DeleteProject);if(!n)return;
+  const base=data.nodes.find(x=>x.parent===n.parent),root=rootOf(n);
+  if(!root||!/^Studienstiftung(?: des deutschen Volkes)?$/i.test(root.name)||!base||base.name==='Studienstiftung')return;
+  const count=kids(n.id).length;
+  if(!confirm(`„${n.name}“ entfernen? ${count?`${count} direkte Unterpunkte bleiben erhalten und werden eine Ebene höher einsortiert.`:'Der Eintrag wird aus der Projektübersicht entfernt.'}`))return;
+  // Keep a restorable original in BrainHome's trash, including notes.
+  if(!Array.isArray(data.trash))data.trash=[];
+  data.trash.push({id:uid(),label:n.name,deletedAt:new Date().toISOString(),items:[{field:'nodes',record:JSON.parse(JSON.stringify(n))}]});
+  for(const child of kids(n.id))child.parent=n.parent;
+  data.nodes=data.nodes.filter(x=>x.id!==n.id);
+  save();render();notice('Projekt entfernt · Inhalte erhalten');
+ }
+ if(close){reviewDialog.close()}
+},true);
+// Stale previous versions may still restore to Home; make the calendar route explicit.
+try{const saved=JSON.parse(localStorage.getItem('brainhome-v25-last-route')||'null');if(saved?.tab==='calendar'){data.tab='calendar'}}catch{}
+render();
+setTimeout(scanReviews,1100);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(scanReviews,300)},true);
+window.BH37={datedEntries,reviewCandidates,eventsFor,taskCounts,findLife};
+const style=document.createElement('style');style.textContent=`
+/* v3.7: colors belong to category cards, not to the canvas or every task row */
+#app .tree-scroll,#app .bh13-graph-scroll,#app .bh30-graph-scroll,#bh11TreeDialog .bh11-modal-scroll{background:#f9fcf8!important}
+#app .task[data-area],#app .bh29-task,#app .bh13-graph-canvas{background:#fff}
+#app .bh37-rituals{margin:15px 0 22px}
+#app .bh37-rituals .private-panel{margin:0;box-shadow:none}
+.bh37-remove-project{font-size:18px!important;color:#8a6664!important}
+.bh37-calendar{max-width:900px;margin:13px auto 40px;color:#294936}
+.bh37-calendar-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}.bh37-calendar-head h2{font-size:22px;margin:0}
+.bh37-month-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#e8f2e9;border:1px solid #d1e1d3;border-radius:14px;padding:8px 12px;margin-bottom:9px;color:#2c593e}
+.bh37-month-nav button{border:0;background:#fff;border-radius:8px;font-size:23px;min-width:37px;min-height:34px;color:#3a704e;cursor:pointer}
+.bh37-calendar-week,.bh37-calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.bh37-calendar-week span{text-align:center;font-size:11px;color:#66816e;font-weight:700;padding:8px 0}
+.bh37-day,.bh37-empty-day{min-height:67px;border-radius:10px;background:#fff;border:1px solid #dfebdf;display:flex;flex-direction:column;align-items:start;justify-content:space-between;padding:7px;color:#355a42;cursor:pointer;font:inherit}
+.bh37-day.today{border-color:#86b397}.bh37-day.selected{background:#dcebdd;border:2px solid #709e7c}.bh37-day strong{font-size:14px}
+.bh37-dot-count{font-size:10px;border-radius:30px;background:#b9d6bf;padding:2px 6px;align-self:flex-end}
+.bh37-appointments,.bh37-month-list{border:1px solid #e1eae0;background:#fff;border-radius:13px;padding:13px;margin-top:17px}
+.bh37-appointments h3,.bh37-month-list h3{font-size:14px;margin:0 0 9px;color:#355c40}
+.bh37-event{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;border-bottom:1px solid #e6eee5;padding:10px 4px;background:transparent;color:#3a5944;cursor:pointer}.bh37-event strong{font-size:13px;flex:1;min-width:0;overflow-wrap:anywhere}.bh37-event small{font-size:11px;color:#7a8a7e}.bh37-event.is-done{opacity:.6}.bh37-event time{font-size:11px;color:#688971}
+.bh37-calendar-help{color:#748879;font-size:11px;margin-top:12px}
+.bh37-review-dialog{border:0;border-radius:19px;width:min(93vw,690px);max-height:90dvh;padding:0;background:#fbfdfb;color:#294738;box-shadow:0 15px 80px #13271970;overflow:hidden}.bh37-review-dialog::backdrop{background:#132e2170}
+.bh37-review-content{position:relative;z-index:2;padding:22px;max-height:90dvh;overflow:auto}.bh37-review-top{display:flex;justify-content:space-between;gap:8px;align-items:center;color:#305b42;font-weight:800;font-size:22px}
+.bh37-review-content>small{color:#7a8c7d}.bh37-review-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:17px 0}
+.bh37-review-metrics div{background:#eaf3e9;border-radius:12px;padding:13px 9px;text-align:center;display:grid;gap:3px}.bh37-review-metrics strong{font-size:23px}.bh37-review-metrics span{font-size:10px;color:#64806e}
+.bh37-review-group{padding:11px 0;border-top:1px solid #e1eae0}.bh37-review-group h3{font-size:14px;margin:0 0 7px;display:flex;justify-content:space-between}.bh37-review-group div{font-size:12px;line-height:1.7}
+.bh37-confetti{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:3}.bh37-confetti i{position:absolute;width:8px;height:13px;top:-20px;left:var(--x);transform:rotate(var(--rotate));background:hsl(var(--hue) 48% 75%);animation:bh37-fall var(--duration) ease-in var(--delay) forwards;opacity:0}
+@keyframes bh37-fall{0%{transform:translateY(-18px) rotate(0);opacity:0}10%{opacity:1}85%{opacity:.85}100%{transform:translateY(600px) rotate(800deg);opacity:0}}
+@media(max-width:430px){.bh37-day,.bh37-empty-day{min-height:51px;padding:5px}.bh37-review-content{padding:15px}.bh37-review-metrics strong{font-size:18px}.bh37-calendar-head h2{font-size:19px}}
+@media(prefers-reduced-motion:reduce){.bh37-confetti i{animation:none;display:none}}
+`;document.head.append(style);
 })();
