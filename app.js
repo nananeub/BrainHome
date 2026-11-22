@@ -2,7 +2,7 @@
 (() => {
 'use strict';
 const V1_UNDO_KEY='brainhome-v10-undo';
-const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','knowledgeDocuments','taskEvents','vouchers','trainingTypes','trainingLog','mealSchedule'];
+const V1_PAYLOAD_FIELDS=['nodes','songs','shopping','routines','routineGroups','finances','privateOrder','trash','completionLog','knowledgeNodes','knowledgeDocuments','taskEvents','vouchers','trainingTypes','trainingLog','mealSchedule','sportGoals','cleanRooms','cleanHistory','householdSettings'];
 const v1NewId=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():('id-'+Date.now()+'-'+Math.random().toString(36).slice(2));
 const v1CleanObject=o=>{const result={version:10};for(const key of V1_PAYLOAD_FIELDS)result[key]=Array.isArray(o?.[key])?JSON.parse(JSON.stringify(o[key])):[];result.taxAllowance=Number.isFinite(o?.taxAllowance)?o.taxAllowance:null;return result};
 const v1Json=o=>JSON.stringify(v1CleanObject(o));
@@ -3138,4 +3138,256 @@ const style=document.createElement('style');style.textContent=`
 @media(max-width:430px){.bh37-day,.bh37-empty-day{min-height:51px;padding:5px}.bh37-review-content{padding:15px}.bh37-review-metrics strong{font-size:18px}.bh37-calendar-head h2{font-size:19px}}
 @media(prefers-reduced-motion:reduce){.bh37-confetti i{animation:none;display:none}}
 `;document.head.append(style);
+})();
+
+
+/* BrainHome 3.8 — living hub, editable cleaning schedule, skill goals and read-only Google Calendar. */
+(() => {
+'use strict';
+const root=document.getElementById('app');
+const x=s=>esc(s??'');
+const day=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const daysFrom=s=>{const d=new Date(String(s).slice(0,10)+'T12:00:00');return Number.isFinite(d.getTime())?d:null};
+const addDays=(s,by)=>{const d=daysFrom(s);if(!d)return null;d.setDate(d.getDate()+by);return day(d)};
+const nicerDate=s=>s?new Date(s+'T12:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}):'Noch nicht erledigt';
+const life=()=>data.nodes.find(n=>n.parent===null&&(n.lifeArea===true||/^(?:sport\s*(?:und|&|\+)\s*essen|lebenshaltung)$/i.test(n.name||'')));
+const inLife=()=>data.tab==='tree'&&get(data.active)?.id===life()?.id;
+const list=(key)=>Array.isArray(data[key])?data[key]:(data[key]=[]);
+const templateNames=['Schlafzimmer','Wohnzimmer','Küche','Arbeitszimmer','Flur','Bad'];
+const defaultRooms=()=>templateNames.map((name,i)=>({id:`bh38-room-${i+1}`,name,frequencyDays:0,lastDone:'',items:[]}));
+// Default rooms are virtual until the user edits or checks something: no premature
+// save() on a fresh device that is still waiting to restore its Firebase backup.
+const roomsInit=()=>Array.isArray(data.householdSettings)&&data.householdSettings.some(s=>s?.id==='clean-rooms-initialized');
+const rooms=()=>roomsInit()?(data.cleanRooms||[]):data.cleanRooms?.length?data.cleanRooms:defaultRooms();
+function mutableRooms(){if(!roomsInit()){data.cleanRooms=data.cleanRooms?.length?data.cleanRooms:defaultRooms();data.householdSettings=[...(data.householdSettings||[]),{id:'clean-rooms-initialized'}]}return data.cleanRooms}
+let section='sport';try{const saved=localStorage.getItem('brainhome-v38-view');if(['sport','food','house'].includes(saved))section=saved;else if(localStorage.getItem('brainhome-v34-current')==='food')section='food'}catch{}
+function setSection(s){section=s;try{localStorage.setItem('brainhome-v38-view',s)}catch{}}
+const goalArray=()=>list('sportGoals');
+const getGoal=id=>goalArray().find(g=>g.id===id);
+const getRoom=id=>rooms().find(r=>r.id===id);
+const getItem=(r,id)=>r?.items?.find(i=>i.id===id);
+const dueDate=(last,freq)=>freq>0?(last?addDays(last,freq):day()):null;
+function dueEntries(){const out=[];for(const room of rooms())for(const item of room.items||[]){const freq=Number(item.frequencyDays)||0;if(!freq)continue;out.push({room,item,next:dueDate(item.lastDone,freq)})}return out.sort((a,b)=>(a.next||'').localeCompare(b.next||'')||a.room.name.localeCompare(b.room.name,'de'))}
+function sportGoalsHTML(){
+ const g=goalArray();return `<section class="bh38-panel" aria-label="Sportziele"><div class="bh38-heading"><h3>🎯 Sportziele</h3><button type="button" class="btn" data-bh38-add-goal>＋ Ziel</button></div>
+ ${g.length?g.map(goal=>{const steps=goal.steps||[],checked=steps.filter(s=>s.done).length;return `<article class="bh38-goal"><div class="bh38-goal-head"><div><strong>${x(goal.title)}</strong><small>${checked} von ${steps.length} Leveln erreicht</small></div><div><button type="button" class="mini" data-bh38-edit-goal="${x(goal.id)}" aria-label="Ziel bearbeiten">✎</button><button type="button" class="mini" data-bh38-remove-goal="${x(goal.id)}" aria-label="Ziel löschen">×</button></div></div><div class="bh38-progress"><span style="width:${steps.length?100*checked/steps.length:0}%"></span></div><div class="bh38-levels">${steps.map((s,i)=>`<div class="bh38-level"><label><input type="checkbox" data-bh38-level="${x(goal.id)}" data-step="${x(s.id)}" ${s.done?'checked':''}><span>${i+1}. ${x(s.name)}</span></label><button type="button" class="mini" data-bh38-edit-level="${x(goal.id)}" data-step="${x(s.id)}" aria-label="Level bearbeiten">✎</button><button type="button" class="mini" data-bh38-remove-level="${x(goal.id)}" data-step="${x(s.id)}" aria-label="Level löschen">×</button></div>`).join('')}</div><form class="bh38-inline-form" data-bh38-add-level="${x(goal.id)}"><input name="name" maxlength="180" required placeholder="Nächstes Level oder ein Schritt …"><button type="submit" class="btn">＋</button></form></article>`}).join(''):'<p class="muted">Ein Ziel anlegen und die Etappen auf dem Weg dorthin festhalten.</p>'}</section>`;
+}
+function safeRecipeTree(parent,seen=new Set(),depth=0){
+ if(depth>8||seen.has(parent))return '';const visited=new Set(seen);visited.add(parent);
+ return data.nodes.filter(n=>n.parent===parent).map(n=>{
+   const children=data.nodes.filter(v=>v.parent===n.id);
+   if(children.length&&n.kind==='category')return `<details class="bh38-recipe-group"><summary>📂 ${x(n.name)}</summary><div>${safeRecipeTree(n.id,visited,depth+1)}</div></details>`;
+   return `<div class="bh38-recipe-entry"><span>🍽️ ${x(n.name)}</span><button class="mini" type="button" data-bh38-recipe="${x(n.id)}" aria-label="Rezept öffnen">Öffnen</button></div>`;
+ }).join('');
+}
+function sharedFood(){
+ const priv=privateRoot?.(),candidates=data.nodes.filter(n=>n.parent&&/rezeptbuch/i.test(String(n.name||''))&&rootOf(n)?.id===priv?.id);
+ const source=document.createElement('div');source.innerHTML=specialsHTML();
+ const sections=['food','shopping'].map(key=>source.querySelector(`.private-panel[data-panel="${key}"]`)?.outerHTML||'').join('');
+ const recipes=candidates.map(n=>`<section class="bh38-recipes"><div class="bh38-heading"><h3>${x(n.name)}</h3><button class="btn" type="button" data-bh38-add-recipe="${x(n.id)}">＋ Rezept</button></div>${safeRecipeTree(n.id)||'<p class="muted">Noch keine Rezepte eingetragen.</p>'}</section>`).join('');
+ return `<div class="bh38-shared-food">${recipes||'<p class="muted">Kein Rezeptbuch gefunden. Die vorhandenen Rezepte unter Privat bleiben unverändert.</p>'}${sections}</div>`;
+}
+function houseHTML(){
+ const next=dueEntries().slice(0,8),rs=rooms();
+ return `<section class="bh34-body bh38-house"><section class="bh38-panel"><div class="bh38-heading"><h3>🧽 Putzplan</h3><button type="button" class="btn" data-bh38-add-room>＋ Raum</button></div>
+ <div class="bh38-clean-table"><table><thead><tr><th scope="col">Raum / Bereich</th><th scope="col">Zuletzt</th><th scope="col">Aktion</th></tr></thead><tbody>${rs.map(r=>`<tr class="bh38-room-row"><th scope="row"><strong>${x(r.name)}</strong>${r.frequencyDays?`<small> · alle ${r.frequencyDays} Tage</small>`:''}</th><td>${x(nicerDate(r.lastDone))}</td><td><button type="button" class="mini" data-bh38-done-room="${x(r.id)}">✓</button><button class="mini" type="button" data-bh38-edit-room="${x(r.id)}">✎</button><button class="mini" type="button" data-bh38-remove-room="${x(r.id)}">×</button></td></tr>
+ <tr><td colspan="3"><details class="bh38-room-details" data-bh38-room-open="${x(r.id)}" ${r.open?'open':''}><summary>Einzelne Putzaufgaben (${(r.items||[]).length})</summary><div class="bh38-clean-children">${(r.items||[]).map(i=>`<div class="bh38-clean-item"><div><strong>${x(i.name)}</strong><small>${x(nicerDate(i.lastDone))}${i.frequencyDays?` · alle ${i.frequencyDays} Tage`:''}</small></div><button type="button" class="mini" data-bh38-done-item="${x(r.id)}" data-item="${x(i.id)}">✓</button><button type="button" class="mini" data-bh38-edit-item="${x(r.id)}" data-item="${x(i.id)}">✎</button><button type="button" class="mini" data-bh38-remove-item="${x(r.id)}" data-item="${x(i.id)}">×</button></div>`).join('')}<button class="btn" type="button" data-bh38-add-item="${x(r.id)}">＋ Putzaufgabe</button></div></details></td></tr>`).join('')}</tbody></table></div></section>
+ <section class="bh38-panel"><h3>Als Nächstes</h3>${next.length?next.map(e=>`<div class="bh38-next"><span><strong>${x(e.item.name)}</strong><small>${x(e.room.name)} · ${e.item.lastDone?'Fällig '+nicerDate(e.next):'Noch nie erledigt'}</small></span><button type="button" class="btn" data-bh38-done-item="${x(e.room.id)}" data-item="${x(e.item.id)}">✓ Gemacht</button></div>`).join(''):'<p class="muted">Trage bei einer Putzaufgabe ein Intervall ein, dann erscheint sie hier.</p>'}</section>
+ <div id="bh38RitualSlot"></div></section>`;
+}
+// Render after the existing, fully tested v3.7 navigation and data pipeline.
+const previousRender=render;
+render=function(...args){
+ const result=previousRender(...args);
+ if(inLife()){
+   const hub=root.querySelector('#bh35Hub');if(hub){
+     const originalTabs=hub.querySelector('.bh34-tabs');if(originalTabs)originalTabs.hidden=true;
+     const tabs=document.createElement('div');tabs.className='bh38-tabs';tabs.innerHTML=[['sport','🏋️ Sport'],['food','🥗 Essen'],['house','🧹 Haushalt']].map(([value,label])=>`<button type="button" class="${section===value?'active':''}" aria-pressed="${section===value}" data-bh38-tab="${value}">${label}</button>`).join('');hub.prepend(tabs);
+     if(section==='house'){
+       hub.querySelector('#bh34Workout')?.remove();hub.querySelector('#bh34Meals')?.remove();
+       hub.insertAdjacentHTML('beforeend',houseHTML());
+       const oldRitual=root.querySelector('#bh37Rituals');
+       if(oldRitual){hub.querySelector('#bh38RitualSlot')?.append(oldRitual)}
+       else hub.querySelector('#bh38RitualSlot')?.insertAdjacentHTML('beforeend',foldPanel('routines','🌿 Rituale',routinesHTML()));
+     }else{
+       root.querySelector('#bh37Rituals')?.remove();
+       if(section==='sport')hub.insertAdjacentHTML('beforeend',sportGoalsHTML());
+       if(section==='food')hub.insertAdjacentHTML('beforeend',sharedFood());
+     }
+   }
+ }
+ if(data.tab==='projects'||data.tab==='home'){
+   const p=life();if(p){const el=root.querySelector(`.project[data-id="${CSS.escape(p.id)}"] small`);
+     if(el){const due=(data.routines||[]).filter(r=>(r.asTask===true||(r.asTask==null&&r.priority==='sofort'))&&routineDue(r)).length;el.textContent=`${due} offene Aufgaben`;}
+   }
+ }
+ const f=root.querySelector('.bh27-foundation-appointments');if(f){
+   let expanded=false;try{expanded=localStorage.getItem('brainhome-v38-foundation-dates')==='open'}catch{}
+   f.querySelector('.bh27-foundation-heading h3')?.remove();const details=document.createElement('details');details.className='bh38-foundation-fold';details.dataset.bh38FoundationFold='1';details.open=expanded;
+   details.innerHTML=`<summary>📅 Anstehende Termine</summary><div></div>`;details.lastElementChild.append(...Array.from(f.childNodes));f.replaceWith(details);
+ }
+ if(data.tab==='calendar')decorateCalendar();
+ return result;
+};
+// Generic edit dialog for cleaning rooms and their individually scheduled items.
+const editDlg=document.createElement('dialog');editDlg.className='bh38-editor';editDlg.innerHTML=`<form class="modal"><h2 id="bh38EditTitle"></h2><label class="field">Name<input name="name" maxlength="140" required></label><label class="field">Reinigungsintervall in Tagen (optional)<input name="frequencyDays" type="number" min="0" max="3650" step="1" placeholder="z. B. 7"></label><label class="field">Zuletzt gereinigt<input type="date" name="lastDone"></label><footer><button class="btn" type="button" data-bh38-cancel>Abbrechen</button><button class="btn primary" type="submit">Speichern</button></footer></form>`;document.body.append(editDlg);
+let editing=null;
+function editCleaning(kind,roomId=null,itemId=null){
+ editing={kind,roomId,itemId};const room=getRoom(roomId),obj=kind==='room'?room:getItem(room,itemId),f=editDlg.querySelector('form');
+ f.elements.name.value=obj?.name||'';f.elements.frequencyDays.value=obj?.frequencyDays||'';f.elements.lastDone.value=obj?.lastDone||'';
+ editDlg.querySelector('#bh38EditTitle').textContent=kind==='room'?(obj?'Raum bearbeiten':'Raum hinzufügen'):(obj?'Putzaufgabe bearbeiten':'Putzaufgabe hinzufügen');editDlg.showModal();
+}
+editDlg.querySelector('[data-bh38-cancel]').onclick=()=>editDlg.close();
+editDlg.querySelector('form').addEventListener('submit',e=>{
+ e.preventDefault();if(!editing)return;const f=e.target,name=f.elements.name.value.trim(),freq=Number(f.elements.frequencyDays.value||0),last=f.elements.lastDone.value;
+ if(!name||!Number.isInteger(freq)||freq<0||freq>3650)return;
+ const rs=mutableRooms(),room=rs.find(r=>r.id===editing.roomId);
+ if(editing.kind==='room'){
+   const existing=room||{id:uid(),items:[]};Object.assign(existing,{name,frequencyDays:freq,lastDone:last});if(!room)rs.push(existing);
+ }else{
+   if(!room)return;room.items=Array.isArray(room.items)?room.items:[];
+   const item=room.items.find(i=>i.id===editing.itemId)||{id:uid()};Object.assign(item,{name,frequencyDays:freq,lastDone:last});if(!room.items.some(i=>i.id===item.id))room.items.push(item);
+ }
+ save();editDlg.close();render();
+});
+function markCleaning(roomId,itemId){const r=mutableRooms().find(q=>q.id===roomId);if(!r)return;
+ const obj=itemId?getItem(r,itemId):r;if(!obj)return;obj.lastDone=day();
+ list('cleanHistory').push({id:uid(),roomId:r.id,itemId:itemId||null,name:obj.name,date:day(),at:new Date().toISOString()});save();render();notice('Reinigung gespeichert');
+}
+function captureOpenRooms(){const host=root.querySelector('.bh38-house');if(!host)return;for(const el of host.querySelectorAll('.bh38-room-details')){
+ const roomName=el.closest('tr')?.previousElementSibling?.querySelector('th strong')?.textContent;
+ const room=mutableRooms().find(r=>r.name===roomName);if(room)room.open=el.open;
+ }}
+// Goals and cleaning interactions: all existing data is only mutated by explicit actions.
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-bh38-tab],[data-bh38-add-goal],[data-bh38-edit-goal],[data-bh38-remove-goal],[data-bh38-edit-level],[data-bh38-remove-level],[data-bh38-add-room],[data-bh38-edit-room],[data-bh38-remove-room],[data-bh38-add-item],[data-bh38-edit-item],[data-bh38-remove-item],[data-bh38-done-room],[data-bh38-done-item],[data-bh38-add-recipe],[data-bh38-recipe]');
+ if(!b)return;e.preventDefault();e.stopImmediatePropagation();
+ if(b.dataset.bh38Tab){const next=b.dataset.bh38Tab;setSection(next);if(next==='sport'||next==='food'){
+   const old=root.querySelector(`.bh34-tabs [data-bh35-tab="${next}"]`);if(old){old.click();return;}}
+   render();return;
+ }
+ if(b.hasAttribute('data-bh38-add-goal')){const title=prompt('Dein neues Sportziel');if(title?.trim()){goalArray().push({id:uid(),title:title.trim(),steps:[],createdAt:new Date().toISOString()});save();render()}return}
+ if(b.dataset.bh38EditGoal){const g=getGoal(b.dataset.bh38EditGoal),name=g&&prompt('Sportziel bearbeiten',g.title);if(g&&name?.trim()){g.title=name.trim();save();render()}return}
+ if(b.dataset.bh38RemoveGoal){const g=getGoal(b.dataset.bh38RemoveGoal);if(g&&confirm(`„${g.title}“ und seine Level entfernen?`)){data.sportGoals=goalArray().filter(q=>q.id!==g.id);save();render()}return}
+ if(b.dataset.bh38EditLevel){const g=getGoal(b.dataset.bh38EditLevel),s=g?.steps?.find(q=>q.id===b.dataset.step),name=s&&prompt('Level bearbeiten',s.name);if(s&&name?.trim()){s.name=name.trim();save();render()}return}
+ if(b.dataset.bh38RemoveLevel){const g=getGoal(b.dataset.bh38RemoveLevel),s=g?.steps?.find(q=>q.id===b.dataset.step);if(s&&confirm(`Level „${s.name}“ entfernen?`)){g.steps=g.steps.filter(q=>q.id!==s.id);save();render()}return}
+ if(b.hasAttribute('data-bh38-add-room'))return editCleaning('room');
+ if(b.dataset.bh38EditRoom)return editCleaning('room',b.dataset.bh38EditRoom);
+ if(b.dataset.bh38RemoveRoom){const r=getRoom(b.dataset.bh38RemoveRoom);if(r&&confirm(`Raum „${r.name}“ mitsamt seinen ${(r.items||[]).length} Einträgen löschen?`)){data.cleanRooms=mutableRooms().filter(q=>q.id!==r.id);save();render()}return}
+ if(b.dataset.bh38AddItem)return editCleaning('item',b.dataset.bh38AddItem);
+ if(b.dataset.bh38EditItem)return editCleaning('item',b.dataset.bh38EditItem,b.dataset.item);
+ if(b.dataset.bh38RemoveItem){const r=getRoom(b.dataset.bh38RemoveItem),s=getItem(r,b.dataset.item);if(s&&confirm(`„${s.name}“ entfernen?`)){r.items=r.items.filter(q=>q.id!==s.id);save();render()}return}
+ if(b.dataset.bh38DoneRoom)return markCleaning(b.dataset.bh38DoneRoom);
+ if(b.dataset.bh38DoneItem)return markCleaning(b.dataset.bh38DoneItem,b.dataset.item);
+ if(b.dataset.bh38AddRecipe){openEditor(null,b.dataset.bh38AddRecipe);if(document.getElementById('kind'))document.getElementById('kind').value='list';if(document.getElementById('checkable'))document.getElementById('checkable').checked=false;return}
+ if(b.dataset.bh38Recipe){openEditor(b.dataset.bh38Recipe);return}
+},true);
+document.addEventListener('change',e=>{const i=e.target.closest('[data-bh38-level]');if(!i)return;
+ const g=getGoal(i.dataset.bh38Level),s=g?.steps?.find(q=>q.id===i.dataset.step);if(s){s.done=i.checked;s.doneAt=i.checked?new Date().toISOString():null;save();render()}
+},true);
+document.addEventListener('submit',e=>{const f=e.target.closest('[data-bh38-add-level]');if(!f)return;e.preventDefault();e.stopImmediatePropagation();const g=getGoal(f.dataset.bh38AddLevel),name=f.elements.name?.value?.trim();if(g&&name){g.steps=g.steps||[];g.steps.push({id:uid(),name,done:false,doneAt:null});save();render()}},true);
+document.addEventListener('toggle',e=>{const el=e.target;if(el.matches('[data-bh38-foundation-fold]')){try{localStorage.setItem('brainhome-v38-foundation-dates',el.open?'open':'closed')}catch{}}if(el.matches('[data-bh38-room-open]')){const current=mutableRooms().find(r=>r.id===el.dataset.bh38RoomOpen);if(current)current.open=el.open;}},true);
+// Google Calendar: read-only OAuth token model; no Google data or credentials in Firebase,
+// and no access token stored in localStorage. User grants the scope interactively.
+const CLIENT_KEY='brainhome-v38-google-oauth-client';let clientId='';try{clientId=localStorage.getItem(CLIENT_KEY)||''}catch{}
+let accessToken='',tokenExpiry=0,loadingGoogle=false,googleError='',googleStatus='',googleEvents=[],fetchedMonth='',calendarNames=[],pendingKey='',oauthClient=null;
+const googleReady=()=>!!accessToken&&Date.now()<tokenExpiry;
+function calendarMonthKey(){const title=root.querySelector('.bh37-month-nav strong')?.textContent||''; // use actual displayed calendar grid, not device current month
+ const calendarField=localStorage.getItem('brainhome-v37-calendar-month');return /^\d{4}-\d{2}$/.test(calendarField||'')?calendarField:day().slice(0,7);
+}
+function monthEdges(month){const [y,m]=month.split('-').map(Number);return [new Date(Date.UTC(y,m-1,1)-36*3600000).toISOString(),new Date(Date.UTC(y,m,1)+36*3600000).toISOString()]}
+async function loadGIS(){if(window.google?.accounts?.oauth2)return;
+ await new Promise((resolve,reject)=>{const old=document.querySelector('script[data-bh38-gis]');if(old){old.addEventListener('load',resolve,{once:true});old.addEventListener('error',()=>reject(new Error('Google-Anmeldung konnte nicht geladen werden')),{once:true});return}
+ const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.dataset.bh38Gis='1';s.onload=resolve;s.onerror=()=>reject(new Error('Google-Anmeldung konnte nicht geladen werden'));document.head.append(s)});
+}
+async function googleFetch(path,params={}){
+ const url=new URL('https://www.googleapis.com/calendar/v3/'+path);for(const [k,v] of Object.entries(params))if(v!=null)url.searchParams.set(k,String(v));
+ const result=await fetch(url.toString(),{headers:{Authorization:'Bearer '+accessToken},cache:'no-store'});
+ if(!result.ok){let err=String(result.status);try{const body=await result.json();err=body?.error?.message||err}catch{}if(result.status===401){accessToken='';tokenExpiry=0}throw Error(err)}return await result.json();
+}
+async function loadGoogleMonth(force=false){
+ if(!googleReady()||data.tab!=='calendar')return;const month=calendarMonthKey();if(loadingGoogle||(!force&&fetchedMonth===month))return;
+ loadingGoogle=true;googleError='';googleStatus='Google-Termine laden …';pendingKey=month;decorateCalendar();
+ try{
+  const [start,end]=monthEdges(month);const calendars=await googleFetch('users/me/calendarList',{maxResults:100});
+  const active=(calendars.items||[]).filter(c=>c.selected!==false&&!c.hidden).slice(0,20);
+  calendarNames=active.map(c=>c.summary||c.id);const all=[];
+  for(const c of active){let pageToken;let page=0;do{
+    const response=await googleFetch(`calendars/${encodeURIComponent(c.id)}/events`,{singleEvents:'true',orderBy:'startTime',timeMin:start,timeMax:end,maxResults:250,pageToken});
+    for(const ev of response.items||[])if(ev.status!=='cancelled'&&ev.start){all.push({id:c.id+'/'+ev.id,title:ev.summary||'(Ohne Titel)',calendar:c.summary||'Google Kalender',start:ev.start,end:ev.end||{},htmlLink:ev.htmlLink||'',allDay:!!ev.start.date})}
+    pageToken=response.nextPageToken;page++;
+  }while(pageToken&&page<4)}
+  if(pendingKey===month){googleEvents=all.filter(ev=>eventDays(ev).some(d=>d.startsWith(month)));fetchedMonth=month;googleStatus=`${googleEvents.length} Google-Termine · ${active.length} Kalender`}
+ }catch(error){googleError=error.message||String(error);googleStatus='Google-Verbindung prüfen'}
+ finally{loadingGoogle=false;render()}
+}
+function joinDay(dateTime){if(!dateTime)return '';const date=new Date(dateTime);if(!Number.isFinite(date.getTime()))return '';const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));return `${parts.year}-${parts.month}-${parts.day}`}
+function gDate(ev){return ev.start.date||joinDay(ev.start.dateTime)}
+function eventDays(ev){const start=gDate(ev),end=ev.allDay?ev.end?.date:joinDay(ev.end?.dateTime||ev.start.dateTime);if(!start)return [];
+ const until=ev.allDay&&end?addDays(end,-1):end||start;const out=[];for(let date=start,k=0;date&&date<=until&&k<75;date=addDays(date,1),k++)out.push(date);return out;
+}
+const gTime=ev=>ev.allDay?'Ganztägig':(ev.start.dateTime?new Date(ev.start.dateTime).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'}):'');
+function googleBar(){const connected=googleReady();const label=googleError?'⚠ '+googleError:googleStatus||(connected?'Google verbunden':'Google Kalender lesen (keine Änderungen an Google)');
+ return `<section class="bh38-googlebar" aria-label="Google Kalender verbinden"><div class="bh38-heading"><h3>Google Kalender</h3>${connected?'<span class="bh38-connected">● Verbunden</span>':''}</div>
+ ${!clientId?`<div class="bh38-google-setup"><label>OAuth-Client-ID (Web-App)<input id="bh38ClientInput" type="text" placeholder="…apps.googleusercontent.com" autocomplete="off"></label><button class="btn" data-bh38-save-client>Einrichten</button><small>Einmalig eine Client-ID aus der Google Cloud Console eintragen (siehe Anleitung in der ZIP).</small></div>`:''}
+ <div class="bh38-google-actions">${clientId?`<button class="btn primary" data-bh38-connect-google>${connected?'Erneut anmelden':'Mit Google verbinden'}</button><button class="btn" data-bh38-change-client title="Client-ID ändern">⚙</button>`:''}${connected?`<button class="btn" data-bh38-refresh-google ${loadingGoogle?'disabled':''}>⟳ Aktualisieren</button><button class="btn" data-bh38-disconnect-google>Trennen</button>`:''}</div>
+ <p class="bh38-google-status" role="status">${x(label)}</p></section>`;
+}
+function decorateCalendar(){
+ const host=root.querySelector('.bh37-calendar');if(!host)return;
+ host.querySelector('.bh38-googlebar')?.remove();host.insertAdjacentHTML('afterbegin',googleBar());
+ if(!googleReady()||fetchedMonth!==calendarMonthKey()){if(clientId&&!window.google?.accounts?.oauth2&&!loadingGoogle)void loadGIS().catch(()=>{});if(googleReady()&&!loadingGoogle)void loadGoogleMonth();return}
+ const grouped=new Map();for(const ev of googleEvents)for(const date of eventDays(ev)){if(!date.startsWith(calendarMonthKey()))continue;const items=grouped.get(date)||[];items.push(ev);grouped.set(date,items)}
+ for(const btn of host.querySelectorAll('[data-bh37-day]')){const n=grouped.get(btn.dataset.bh37Day)?.length||0;if(!n)continue;
+  const old=btn.querySelector('.bh37-dot-count'),previous=Number(old?.textContent||0);if(old)old.textContent=previous+n;else btn.insertAdjacentHTML('beforeend',`<span class="bh37-dot-count">${n}</span>`);
+ }
+ const selected=host.querySelector('.bh37-day.selected')?.dataset.bh37Day||day();
+ const todayEntries=(grouped.get(selected)||[]).slice().sort((a,b)=>gTime(a).localeCompare(gTime(b)));
+ const dayPanel=host.querySelector('.bh37-appointments');if(dayPanel){
+   dayPanel.querySelector('.bh38-google-events')?.remove();
+   if(todayEntries.length){const empty=dayPanel.querySelector('p.muted');if(empty&&/Für diesen Tag ist nichts/i.test(empty.textContent))empty.textContent='Keine BrainHome-Aufgaben an diesem Tag.';}
+   dayPanel.insertAdjacentHTML('beforeend',`<div class="bh38-google-events">${todayEntries.map(ev=>`<div class="bh38-google-event"><span>🗓️</span><div><strong>${x(ev.title)}</strong><small>${x(gTime(ev))} · ${x(ev.calendar)}</small></div>${ev.htmlLink?.startsWith('https://')?`<a href="${x(ev.htmlLink)}" target="_blank" rel="noopener noreferrer">↗</a>`:''}</div>`).join('')}</div>`);
+ }
+ const monthPanel=host.querySelector('.bh37-month-list');if(monthPanel){
+   monthPanel.querySelector('.bh38-google-month')?.remove();
+   monthPanel.insertAdjacentHTML('beforeend',`<div class="bh38-google-month"><h3>Google Kalender · ${googleEvents.length}</h3>${googleEvents.slice(0,150).map(ev=>`<div class="bh38-google-event"><time>${x((gDate(ev)||'').slice(8,10))}.${x((gDate(ev)||'').slice(5,7))}.</time><div><strong>${x(ev.title)}</strong><small>${x(gTime(ev))} · ${x(ev.calendar)}</small></div>${ev.htmlLink?.startsWith('https://')?`<a href="${x(ev.htmlLink)}" target="_blank" rel="noopener noreferrer">↗</a>`:''}</div>`).join('')||'<p class="muted">Keine Google-Termine in diesem Monat.</p>'}</div>`);
+ }
+}
+document.addEventListener('click',async e=>{
+ const button=e.target.closest('[data-bh38-save-client],[data-bh38-change-client],[data-bh38-connect-google],[data-bh38-refresh-google],[data-bh38-disconnect-google]');if(!button)return;
+ e.preventDefault();e.stopImmediatePropagation();
+ if(button.hasAttribute('data-bh38-change-client')){if(confirm('Google-OAuth-Client-ID auf diesem Gerät ändern?')){clientId='';accessToken='';fetchedMonth='';localStorage.removeItem(CLIENT_KEY);render()}return}
+ if(button.hasAttribute('data-bh38-save-client')){const val=root.querySelector('#bh38ClientInput')?.value?.trim()||'';if(!/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(val))return alert('Bitte die vollständige OAuth-Client-ID einer Google-Webanwendung verwenden.');clientId=val;localStorage.setItem(CLIENT_KEY,val);render();return}
+ if(button.hasAttribute('data-bh38-disconnect-google')){if(accessToken&&window.google?.accounts?.oauth2?.revoke)window.google.accounts.oauth2.revoke(accessToken,()=>{});accessToken='';tokenExpiry=0;googleEvents=[];fetchedMonth='';googleStatus='Getrennt';render();return}
+ if(button.hasAttribute('data-bh38-refresh-google')){fetchedMonth='';await loadGoogleMonth(true);return}
+ if(button.hasAttribute('data-bh38-connect-google')){
+   try{if(!window.google?.accounts?.oauth2){await loadGIS();googleStatus='Anmeldung bereit. Bitte nochmals auf „Mit Google verbinden“ tippen.';render();return}oauthClient=window.google.accounts.oauth2.initTokenClient({client_id:clientId,scope:'https://www.googleapis.com/auth/calendar.readonly',callback:async response=>{
+     if(response.error){googleError=response.error;render();return}
+     accessToken=response.access_token;tokenExpiry=Date.now()+(Math.max(30,Number(response.expires_in)||3500)-15)*1000;fetchedMonth='';googleError='';googleStatus='Verbunden';render();await loadGoogleMonth(true);
+   }});oauthClient.requestAccessToken({prompt:'consent'});
+   }catch(error){googleError=error.message||String(error);render()}
+ }
+},true);
+const css=document.createElement('style');css.textContent=`
+.bh38-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:6px;gap:6px;background:#e9f1e9}
+.bh38-tabs button{border:0;border-radius:10px;padding:12px 6px;background:transparent;color:#4e6657;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.bh38-tabs button.active{background:white;color:#2b573b;box-shadow:0 1px 8px #23482f22}
+.bh38-panel,.bh38-recipes{margin:12px;padding:16px;background:white;border:1px solid #dce8dc;border-radius:13px;color:#30513b}
+.bh38-panel h3,.bh38-recipes h3{font-size:15px;margin:0;color:#315a41}.bh38-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+.bh38-goal{background:#f8fbf7;border:1px solid #e2ebe0;border-radius:12px;padding:13px;margin:9px 0}.bh38-goal-head{display:flex;justify-content:space-between;gap:10px}.bh38-goal-head>div:first-child{display:grid;gap:4px}.bh38-goal-head small{color:#748a78;font-size:11px}
+.bh38-progress{height:6px;background:#e4eee2;border-radius:15px;margin:12px 0;overflow:hidden}.bh38-progress span{display:block;height:100%;background:#84ab90;border-radius:15px}
+.bh38-levels{display:grid;gap:4px}.bh38-level{display:flex;gap:5px;align-items:center;background:white;padding:7px 8px;border-radius:8px}.bh38-level label{flex:1;min-width:0;display:flex;gap:8px;align-items:center;font-size:12px}.bh38-level input{accent-color:#689a76}
+.bh38-inline-form{display:flex;gap:6px;margin-top:10px}.bh38-inline-form input{flex:1;min-width:0;border:1px solid #d3e3d3;border-radius:8px;padding:10px;font-size:12px}
+.bh38-shared-food{padding:0 0 15px}.bh38-recipes{margin-bottom:12px}.bh38-recipe-entry,.bh38-clean-item{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:9px;border-bottom:1px solid #e8eee6;font-size:12px}.bh38-recipe-entry span{flex:1;min-width:0;overflow-wrap:anywhere}
+.bh38-recipe-group{border-left:2px solid #d9e7d9;margin:7px 0;padding-left:11px}.bh38-recipe-group summary{cursor:pointer;font-weight:650;font-size:12px;padding:8px 1px}.bh38-shared-food>.private-panel{margin:12px!important}
+.bh38-house{gap:2px}.bh38-house .bh38-panel{margin:0 0 12px}.bh38-clean-table{overflow-x:auto}.bh38-clean-table table{width:100%;border-collapse:collapse;font-size:12px}.bh38-clean-table th,.bh38-clean-table td{padding:10px 5px;border-bottom:1px solid #edf2ed;vertical-align:middle;text-align:left}.bh38-clean-table td:last-child{white-space:nowrap}.bh38-clean-table .mini{padding:4px;min-width:22px}.bh38-room-row{background:#f4f8f3}.bh38-room-row small{font-weight:400;color:#708575;font-size:10px}.bh38-room-details summary{font-size:11px;color:#688675;padding:7px;cursor:pointer}.bh38-clean-children{padding:7px}.bh38-clean-item{background:#fcfdfb;gap:5px}.bh38-clean-item>div{flex:1;min-width:0}.bh38-clean-item small{display:block;font-size:10px;color:#788c7b;margin-top:3px}.bh38-next{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #e5ede4;padding:11px 0}.bh38-next>span{display:grid;gap:3px}.bh38-next small{color:#778d7d;font-size:11px}
+#bh38RitualSlot>.bh37-rituals{margin:0!important}#bh38RitualSlot .private-panel{margin:0!important}
+.bh38-editor{border:0;border-radius:16px;padding:0;width:min(94vw,520px);color:#375b43;background:#fbfdfa}.bh38-editor::backdrop{background:#182a2077}
+.bh38-foundation-fold{margin:12px 0;border:1px solid #dbe8dd;border-radius:12px;background:#fff;padding:11px}.bh38-foundation-fold>summary{font-size:14px;font-weight:700;cursor:pointer;color:#335f43}.bh38-foundation-fold>div{padding-top:10px}
+.bh38-googlebar{background:#f6faf7;border:1px solid #dbe7dd;padding:13px;margin-bottom:13px;border-radius:12px}.bh38-googlebar .bh38-heading{margin-bottom:8px}.bh38-googlebar h3{font-size:14px}.bh38-google-setup label{display:grid;font-size:12px;gap:5px}.bh38-google-setup input{min-width:0;width:100%;font-size:12px;padding:10px;border:1px solid #cadece;border-radius:7px}.bh38-google-setup small{display:block;font-size:11px;color:#758978;margin:8px 0}.bh38-google-actions{display:flex;gap:7px;flex-wrap:wrap}.bh38-google-status{font-size:11px;color:#718674;margin:8px 0 0}.bh38-connected{color:#50845b;font-size:11px}
+.bh38-google-events,.bh38-google-month{padding-top:10px}.bh38-google-month{border-top:1px solid #e5eee5;margin-top:15px}.bh38-google-event{display:flex;gap:9px;align-items:center;padding:9px 4px;border-top:1px solid #eaf0e9;color:#375a40;font-size:12px}.bh38-google-event>div{flex:1;min-width:0}.bh38-google-event strong{display:block;overflow-wrap:anywhere}.bh38-google-event small{color:#799080;font-size:10px}.bh38-google-event a{color:#3e7b55;text-decoration:none}.bh38-google-event time{color:#6a8d72;font-size:11px}
+@media(max-width:500px){.bh38-panel,.bh38-recipes{padding:12px;margin:8px}.bh38-clean-table th,.bh38-clean-table td{font-size:10px;padding:8px 3px}.bh38-clean-item{padding:6px 2px}.bh38-house{padding:6px}.bh38-tabs button{font-size:12px;padding:11px 2px}}
+`;document.head.append(css);
+window.BH38={ownRituals:true,rooms,goalArray,googleStatus:()=>googleStatus};
+render();
 })();
